@@ -400,6 +400,44 @@ macro_rules! lisp {
     (pub type $name:ident = $target:ty) => (pub type $name = $target;);
     (type $name:ident = $target:ty) => (type $name = $target;);
 
+    // const fn (MUST come before const variable to avoid :ident matching `fn` keyword)
+    // const fn & return
+    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        const fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // const fn & void
+    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        const fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // pub const fn & return
+    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub const fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // pub const fn & void
+    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub const fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+
     // const and static
     (pub const $name:ident $typ:ty = $val:expr) => (pub const $name: $typ = $val;);
     (const $name:ident $typ:ty = $val:expr) => (const $name: $typ = $val;);
@@ -554,46 +592,6 @@ macro_rules! lisp {
     );
 
     // ── Functions & Closures ─────────────────────────────────
-
-    // ── Function Qualifiers ──────────────────────────────────
-
-    // const fn & return
-    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        const fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // const fn & void
-    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        const fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-
-    // pub const fn & return
-    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub const fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // pub const fn & void
-    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub const fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
 
     // pub unsafe fn & return
     ( $(#[$m:meta])* pub unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
@@ -836,14 +834,14 @@ macro_rules! lisp {
     (tuple $single:tt) => (($crate::lisp_arg!($single),));
     (tuple $($e:tt)* ) => ( ($($crate::lisp_arg!($e)),*) );
     (vec $($e:tt)* ) => ( vec![$($crate::lisp_arg!($e)),*] );
-    (array $($e:tt)* ) => ( [$($crate::lisp_arg!($e)),*] );
     (array - repeat $val:tt $count:tt) => ( [$crate::lisp_arg!($val); $crate::lisp_arg!($count)] );
+    (array $($e:tt)* ) => ( [$($crate::lisp_arg!($e)),*] );
 
     // ── Val ──────────────────────────────────────────────────
     (val $e:tt) => ($crate::lisp_arg!($e));
 
     // ── Rust escape ──────────────────────────────────────────
-    (rust { $($t:tt)* }) => ( $($t)* );
+    (rust { $($t:tt)* }) => ({ $($t)* });
     (rust $( $st:stmt )* ) => ( $($st);* );
 
     // ── Macro invocation ─────────────────────────────────────
