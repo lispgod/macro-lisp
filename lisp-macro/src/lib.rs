@@ -13,6 +13,18 @@ fn is_ident(tt: &TokenTree, name: &str) -> bool {
     matches!(tt, TokenTree::Ident(i) if *i == name)
 }
 
+// ─── Helper: check if a token tree is a literal (or a literal wrapped in an invisible group) ───
+// macro_rules! fragment captures like `$abi:literal` wrap the literal in a Group { delimiter: None }.
+fn is_literal_like(tt: &TokenTree) -> bool {
+    match tt {
+        TokenTree::Literal(_) => true,
+        TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
+            g.stream().into_iter().any(|t| matches!(t, TokenTree::Literal(_)))
+        }
+        _ => false,
+    }
+}
+
 // ─── Helper: parse a self parameter from tokens inside a parameter group ───
 // Returns Some(token_stream) if it's a self parameter form, None otherwise.
 // Only handles shorthand forms where self doesn't have a type annotation;
@@ -863,11 +875,9 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             TokenTree::Ident(id) if *id == "extern" => {
                 qualifiers.push(tokens[i].clone());
                 i += 1;
-                if i < tokens.len() {
-                    if let TokenTree::Literal(_) = &tokens[i] {
-                        qualifiers.push(tokens[i].clone());
-                        i += 1;
-                    }
+                if i < tokens.len() && is_literal_like(&tokens[i]) {
+                    qualifiers.push(tokens[i].clone());
+                    i += 1;
                 }
             }
             _ => break,
@@ -940,19 +950,31 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
 
     // Parse return type: everything until `where`, a parenthesized group (body start), or a literal
+    // Special case: () is a valid return type when followed by more tokens (body groups)
     let mut return_type_tokens = Vec::new();
-    while i < tokens.len() {
-        if is_ident(&tokens[i], "where") { break; }
+    // First, check for () as unit return type
+    if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
-            if g.delimiter() == Delimiter::Parenthesis {
-                break;
+            if g.delimiter() == Delimiter::Parenthesis && g.stream().is_empty() && i + 1 < tokens.len() {
+                return_type_tokens.push(tokens[i].clone());
+                i += 1;
             }
         }
-        if let TokenTree::Literal(_) = &tokens[i] {
-            break;
+    }
+    if return_type_tokens.is_empty() {
+        while i < tokens.len() {
+            if is_ident(&tokens[i], "where") { break; }
+            if let TokenTree::Group(g) = &tokens[i] {
+                if g.delimiter() == Delimiter::Parenthesis {
+                    break;
+                }
+            }
+            if is_literal_like(&tokens[i]) {
+                break;
+            }
+            return_type_tokens.push(tokens[i].clone());
+            i += 1;
         }
-        return_type_tokens.push(tokens[i].clone());
-        i += 1;
     }
     let return_type = if return_type_tokens.is_empty() {
         None
@@ -1744,12 +1766,10 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             TokenTree::Ident(id) if *id == "extern" => {
                 qualifiers.push(tokens[i].clone());
                 i += 1;
-                // Consume ABI string if present
-                if i < tokens.len() {
-                    if let TokenTree::Literal(_) = &tokens[i] {
-                        qualifiers.push(tokens[i].clone());
-                        i += 1;
-                    }
+                // Consume ABI string if present (may be wrapped in invisible group by macro_rules!)
+                if i < tokens.len() && is_literal_like(&tokens[i]) {
+                    qualifiers.push(tokens[i].clone());
+                    i += 1;
                 }
             }
             _ => break,
@@ -1817,22 +1837,19 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         }
     }
 
-    // 7. Check for return type (next token that's not a group, not `where`, not a paren group for body)
+    // 7. Check for return type
+    // The return type comes after params and before `where` or body groups.
+    // It could be an ident (i32), a path (Vec<T>), or a group like () for unit type.
     let mut return_type = None;
-    // The return type is a single token tree that comes before the where clause and body groups
-    // It could be an ident like `T`, or a path, or missing
     if i < tokens.len() {
-        // Check if this token could be a return type
         match &tokens[i] {
             TokenTree::Ident(id) if *id != "where" => {
-                // Could be a return type - peek ahead to see if next is a body group or `where`
-                // Collect return type tokens until we hit `where` or a parenthesized group that starts a body
+                // Collect return type tokens until we hit `where` or a parenthesized body group
                 let mut ret_tokens = Vec::new();
                 while i < tokens.len() {
                     if is_ident(&tokens[i], "where") { break; }
                     if let TokenTree::Group(g) = &tokens[i] {
                         if g.delimiter() == Delimiter::Parenthesis {
-                            // This could be a body - check if it looks like a lisp expression
                             break;
                         }
                     }
@@ -1844,9 +1861,11 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
                     return_type = Some(ret_ts);
                 }
             }
-            // Handle path-based return types like core::fmt::Result
-            TokenTree::Punct(_) => {
-                // Could be a complex return type path; skip for now
+            // Handle () as unit return type when followed by more tokens (body groups)
+            TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis
+                && g.stream().is_empty() && i + 1 < tokens.len() => {
+                return_type = Some(quote! { () });
+                i += 1;
             }
             _ => {}
         }
