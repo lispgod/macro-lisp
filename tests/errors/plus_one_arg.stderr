@@ -1,0 +1,5 @@
+error: expected expression, found `+`
+ --> tests/errors/plus_one_arg.rs:4:12
+  |
+4 |     lisp!((+ x));
+  |            ^ expected expression
