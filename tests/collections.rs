@@ -46,7 +46,7 @@ fn new_struct_construction() {
         x: i32,
         y: i32,
     }
-    let p = lisp!(new Pos (x 10) (y 20));
+    let p = lisp!(struct - lit Pos (x 10) (y 20));
     assert_eq!(p.x, 10);
     assert_eq!(p.y, 20);
 }
@@ -57,20 +57,20 @@ fn field_access_on_struct() {
         value: i32,
     }
     let item = Item { value: 99 };
-    let v = lisp!(field item value);
+    let v = lisp!(. item value);
     assert_eq!(v, 99);
 }
 
 #[test]
 fn len_vec() {
     let v = vec![1, 2, 3, 4];
-    assert_eq!(lisp!(len v), 4);
+    assert_eq!(lisp!(v.len), 4);
 }
 
 #[test]
 fn len_string() {
     let s = "hello";
-    assert_eq!(lisp!(len s), 5);
+    assert_eq!(lisp!(s.len), 5);
 }
 
 #[test]

@@ -9,16 +9,16 @@ lisp!(fn collatz_len ((n i64)) i64
     (let mut count 0)
     (while (> x 1)
         (if (== (% x 2) 0)
-            (set x (/ x 2))
-            (set x (+ (* x 3) 1)))
+            (= x (/ x 2))
+            (= x (+ (* x 3) 1)))
         (+= count 1))
     (+ count 0)
 );
 
 lisp!(fn main () ()
-    (println "Collatz sequence lengths:")
-    (for i in (range 0 20)
+    (macro! println "Collatz sequence lengths:")
+    (for i in (.. 0 20)
         (let n (+ i 1))
         (let steps (collatz_len n))
-        (println "  collatz({}) = {} steps" n steps))
+        (macro! println "  collatz({}) = {} steps" n steps))
 );

@@ -305,7 +305,7 @@ fn labeled_while() {
 #[test]
 fn labeled_for() {
     let mut total = 0;
-    lisp!('f for i in (range 0 3)
+    lisp!('f for i in (.. 0 3)
         (+= total i));
     assert_eq!(total, 3); // 0+1+2
 }
@@ -462,8 +462,8 @@ fn rust_brace_escape_complex() {
 #[test]
 fn nested_labeled_loops() {
     let mut found = false;
-    lisp!('outer for i in (range 0 5)
-        ('inner for j in (range 0 5)
+    lisp!('outer for i in (.. 0 5)
+        ('inner for j in (.. 0 5)
             (if (&& (== i 2) (== j 3))
                 (block
                     (= found true)

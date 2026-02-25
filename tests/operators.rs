@@ -104,30 +104,30 @@ fn ge_op() {
 // Logical
 #[test]
 fn and_binary() {
-    assert!(lisp!(and true true));
-    assert!(!lisp!(and true false));
-    assert!(!lisp!(and false true));
-    assert!(!lisp!(and false false));
+    assert!(lisp!(&& true true));
+    assert!(!lisp!(&& true false));
+    assert!(!lisp!(&& false true));
+    assert!(!lisp!(&& false false));
 }
 
 #[test]
 fn or_binary() {
-    assert!(lisp!(or true true));
-    assert!(lisp!(or true false));
-    assert!(lisp!(or false true));
-    assert!(!lisp!(or false false));
+    assert!(lisp!(|| true true));
+    assert!(lisp!(|| true false));
+    assert!(lisp!(|| false true));
+    assert!(!lisp!(|| false false));
 }
 
 #[test]
 fn and_variadic() {
-    assert!(lisp!(and true true true));
-    assert!(!lisp!(and true true false));
+    assert!(lisp!(&& (&& true true) true));
+    assert!(!lisp!(&& (&& true true) false));
 }
 
 #[test]
 fn or_variadic() {
-    assert!(lisp!(or false false true));
-    assert!(!lisp!(or false false false));
+    assert!(lisp!(|| (|| false false) true));
+    assert!(!lisp!(|| (|| false false) false));
 }
 
 #[test]

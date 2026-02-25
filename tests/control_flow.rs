@@ -14,7 +14,7 @@ fn if_with_paren_cond_and_else() {
 #[test]
 fn if_with_paren_cond_no_else() {
     lisp!(let mut x 0);
-    lisp!(if (== 1 1) (set x 42));
+    lisp!(if (== 1 1) (= x 42));
     assert_eq!(x, 42);
 }
 
@@ -30,7 +30,7 @@ fn if_with_simple_cond_and_else() {
 #[test]
 fn if_with_simple_cond_no_else() {
     lisp!(let mut x 0);
-    lisp!(if true (set x 42));
+    lisp!(if true (= x 42));
     assert_eq!(x, 42);
 }
 
@@ -45,42 +45,42 @@ fn if_let_with_else() {
 fn if_let_without_else() {
     lisp!(let mut result 0);
     let num = Some(7);
-    lisp!(if let (Some(i) = num) (set result i));
+    lisp!(if let (Some(i) = num) (= result i));
     assert_eq!(result, 7);
 }
 
 #[test]
 fn when_true() {
     lisp!(let mut x 0);
-    lisp!(when true (set x 1));
+    lisp!(if true (= x 1));
     assert_eq!(x, 1);
 }
 
 #[test]
 fn when_false() {
     lisp!(let mut x 0);
-    lisp!(when false (set x 1));
+    lisp!(if false (= x 1));
     assert_eq!(x, 0);
 }
 
 #[test]
 fn when_with_cond() {
     lisp!(let mut x 0);
-    lisp!(when (== 1 1) (set x 42));
+    lisp!(if (== 1 1) (= x 42));
     assert_eq!(x, 42);
 }
 
 #[test]
 fn unless_true() {
     lisp!(let mut x 0);
-    lisp!(unless true (set x 1));
+    lisp!(if (! true) (= x 1));
     assert_eq!(x, 0);
 }
 
 #[test]
 fn unless_false() {
     lisp!(let mut x 0);
-    lisp!(unless false (set x 2));
+    lisp!(if (! false) (= x 2));
     assert_eq!(x, 2);
 }
 
@@ -116,18 +116,18 @@ fn while_let_loop() {
         (let mut num Some(0))
         (let mut last 0)
         (while let (Some(i) = num)
-            (set last i)
+            (= last i)
             (if (> i 9)
-                (set num None)
-                (set num Some(i + 1))))
-        (assert eq 10 last)
+                (= num None)
+                (= num Some(i + 1))))
+        (macro! assert_eq 10 last)
     );
 }
 
 #[test]
 fn for_in_range() {
     lisp!(let mut sum 0);
-    lisp!(for i in (range 0 5) (set sum (+ sum i)));
+    lisp!(for i in (.. 0 5) (= sum (+ sum i)));
     assert_eq!(sum, 10);
 }
 
@@ -135,7 +135,7 @@ fn for_in_range() {
 fn for_in_vec() {
     let v = vec![1, 2, 3, 4, 5];
     lisp!(let mut sum 0);
-    lisp!(for num in v (set sum (+ sum num)));
+    lisp!(for num in v (= sum (+ sum num)));
     assert_eq!(sum, 15);
 }
 
@@ -143,8 +143,8 @@ fn for_in_vec() {
 fn for_in_inline_vec() {
     lisp!(let ((sum 0))
         (for num in (vec 10 20 30)
-            (set sum (+ sum num)))
-        (assert eq 60 sum)
+            (= sum (+ sum num)))
+        (macro! assert_eq 60 sum)
     );
 }
 
@@ -159,11 +159,11 @@ fn loop_with_break() {
 fn loop_with_continue() {
     lisp!(block
         (let mut sum 0)
-        (for i in (range 0 10)
+        (for i in (.. 0 10)
             (if (== (% i 2) 0)
                 (continue))
-            (set sum (+ sum i)))
-        (assert eq 25 sum)
+            (= sum (+ sum i)))
+        (macro! assert_eq 25 sum)
     );
 }
 
@@ -181,11 +181,11 @@ fn block_returns_last() {
 fn nested_if() {
     let x = 15;
     let result = lisp!(if (== (% x 15) 0)
-        (format "FizzBuzz")
+        (macro! format "FizzBuzz")
         (if (== (% x 3) 0)
-            (format "Fizz")
+            (macro! format "Fizz")
             (if (== (% x 5) 0)
-                (format "Buzz")
-                (format "{}" x))));
+                (macro! format "Buzz")
+                (macro! format "{}" x))));
     assert_eq!(result, "FizzBuzz");
 }

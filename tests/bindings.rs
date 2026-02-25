@@ -13,7 +13,7 @@ fn let_immutable() {
 #[test]
 fn let_mutable() {
     lisp!(let mut x 5);
-    lisp!(set x 10);
+    lisp!(= x 10);
     assert_eq!(x, 10);
 }
 
@@ -26,7 +26,7 @@ fn let_typed() {
 #[test]
 fn let_mut_typed() {
     lisp!(let mut (x i32) 5);
-    lisp!(set x 10);
+    lisp!(= x 10);
     assert_eq!(x, 10i32);
 }
 
@@ -40,7 +40,7 @@ fn let_with_expression() {
 fn let_mut_with_expression() {
     lisp!(let mut x (+ 2 3));
     assert_eq!(x, 5);
-    lisp!(set x (+ 10 20));
+    lisp!(= x (+ 10 20));
     assert_eq!(x, 30);
 }
 
@@ -54,7 +54,7 @@ fn let_typed_with_expression() {
 fn let_mut_typed_with_expression() {
     lisp!(let mut (y i32) (* 3 4));
     assert_eq!(y, 12i32);
-    lisp!(set y (* 5 6));
+    lisp!(= y (* 5 6));
     assert_eq!(y, 30i32);
 }
 
@@ -71,16 +71,16 @@ fn scoped_let_mutation() {
         (let ((a 1) (b 2))
             (+= a 10)
             (-= b 1)
-            (assert eq 11 a)
-            (assert eq 1 b))
-        (assert eq x 100)
+            (macro! assert_eq 11 a)
+            (macro! assert_eq 1 b))
+        (macro! assert_eq x 100)
     );
 }
 
 #[test]
 fn set_with_expression() {
     lisp!(let mut x 0);
-    lisp!(set x (+ 3 4));
+    lisp!(= x (+ 3 4));
     assert_eq!(x, 7);
 }
 

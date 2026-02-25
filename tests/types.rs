@@ -83,7 +83,7 @@ fn enum_basic() {
 // impl blocks
 lisp!(impl Point
     (fn origin () Point
-        (new Point (x 0) (y 0)))
+        (struct - lit Point (x 0) (y 0)))
 );
 
 #[test]
@@ -105,14 +105,14 @@ fn type_alias() {
 // new (struct construction)
 #[test]
 fn new_struct() {
-    let p = lisp!(new Point (x 10) (y 20));
+    let p = lisp!(struct - lit Point (x 10) (y 20));
     assert_eq!(p.x, 10);
     assert_eq!(p.y, 20);
 }
 
 #[test]
 fn new_struct_with_expr() {
-    let p = lisp!(new Point (x (+ 1 2)) (y (* 3 4)));
+    let p = lisp!(struct - lit Point (x (+ 1 2)) (y (* 3 4)));
     assert_eq!(p.x, 3);
     assert_eq!(p.y, 12);
 }
@@ -121,7 +121,7 @@ fn new_struct_with_expr() {
 #[test]
 fn field_access() {
     let p = Point { x: 42, y: 99 };
-    let x = lisp!(field p x);
+    let x = lisp!(. p x);
     assert_eq!(x, 42);
 }
 

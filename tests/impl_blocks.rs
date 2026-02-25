@@ -34,7 +34,7 @@ struct V2 { x: i32, y: i32 }
 lisp!(impl core::ops::Add for V2
     (type Output = V2)
     (fn add ((self Self) (rhs Self)) V2
-        (new V2 (x (+ (self.x) (. rhs x))) (y (+ (self.y) (. rhs y))))));
+        (struct - lit V2 (x (+ (self.x) (. rhs x))) (y (+ (self.y) (. rhs y))))));
 
 #[test]
 fn impl_add_with_associated_type() {

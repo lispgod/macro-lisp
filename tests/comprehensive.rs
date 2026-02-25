@@ -8,7 +8,7 @@ use macro_lisp::lisp;
 fn fizzbuzz() {
     let result = lisp!(block
         (let mut out (vec))
-        (for i in (range 1 101)
+        (for i in (.. 1 101)
             (if (== (% i 15) 0)
                 (out.push "FizzBuzz")
                 (if (== (% i 3) 0)
@@ -34,7 +34,7 @@ lisp!(fn fibonacci ((n i32)) i32
 fn fibonacci_sequence() {
     let fibs: Vec<i32> = lisp!(block
         (let mut results (vec))
-        (for i in (range 0 10)
+        (for i in (.. 0 10)
             (results.push (fibonacci i)))
         (val results)
     );
@@ -46,8 +46,8 @@ lisp!(fn collatz_len ((n i64)) i64
     (let mut count 0)
     (while (> x 1)
         (if (== (% x 2) 0)
-            (set x (/ x 2))
-            (set x (+ (* x 3) 1)))
+            (= x (/ x 2))
+            (= x (+ (* x 3) 1)))
         (+= count 1))
     (+ count 0)
 );
@@ -86,7 +86,7 @@ lisp!(impl Vec2
 
 #[test]
 fn struct_with_impl() {
-    let v = lisp!(new Vec2 (x 3.0) (y 4.0));
+    let v = lisp!(struct - lit Vec2 (x 3.0) (y 4.0));
     assert_eq!(v.x, 3.0);
     assert_eq!(v.y, 4.0);
     let mag = v.magnitude();
@@ -107,7 +107,7 @@ fn variadic_arithmetic_chain() {
 fn nested_blocks_and_control() {
     let result = lisp!(block
         (let mut total 0)
-        (for i in (range 1 11)
+        (for i in (.. 1 11)
             (if (== (% i 2) 0)
                 (+= total i)))
         (val total)
@@ -144,8 +144,8 @@ fn try_operator_in_fn() {
 #[test]
 fn scoped_bindings_complex() {
     let result = lisp!(let ((a 10) (b 20) (c 30))
-        (set a (+ a b))
-        (set b (+ b c))
+        (= a (+ a b))
+        (= b (+ b c))
         (+ a b c)
     );
     // a = 10+20 = 30, b = 20+30 = 50, c = 30
@@ -155,7 +155,7 @@ fn scoped_bindings_complex() {
 
 #[test]
 fn format_and_print() {
-    let s = lisp!(format "{} + {} = {}" 2 3 5);
+    let s = lisp!(macro! format "{} + {} = {}" 2 3 5);
     assert_eq!(s, "2 + 3 = 5");
 }
 
@@ -170,7 +170,7 @@ fn rust_escape_hatch() {
 #[test]
 fn range_inclusive_loop() {
     lisp!(let mut sum 0);
-    lisp!(for i in (range= 1 10) (+= sum i));
+    lisp!(for i in (..= 1 10) (+= sum i));
     // 1+2+3+...+10 = 55
     assert_eq!(sum, 55);
 }
