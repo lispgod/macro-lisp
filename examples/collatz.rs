@@ -4,7 +4,7 @@
 use macro_lisp::lisp;
 
 // Compute the length of the Collatz sequence starting at n
-lisp!(defun collatz_len ((n i64)) i64
+lisp!(fn collatz_len ((n i64)) i64
     (defvar x n)
     (defvar count 0)
     (while (> x 1)
@@ -15,10 +15,10 @@ lisp!(defun collatz_len ((n i64)) i64
     (+ count 0)
 );
 
-lisp!(defun main () ()
+lisp!(fn main () ()
     (println "Collatz sequence lengths:")
     (dotimes (i 20)
-        (defconstant n (+ i 1))
-        (defconstant steps (collatz_len n))
+        (let n (+ i 1))
+        (let steps (collatz_len n))
         (println "  collatz({}) = {} steps" n steps))
 );

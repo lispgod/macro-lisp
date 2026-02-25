@@ -3,9 +3,9 @@
 
 use macro_lisp::lisp;
 
-lisp!(defun main() ()
+lisp!(fn main() ()
     (dotimes (count 100)
-        (defconstant num (1+ count))
+        (let num (1+ count))
         (if (== 0 (% num 3))
             (if (== 0 (% num 5))
                 (println "FizzBuzz")

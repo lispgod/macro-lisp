@@ -6,14 +6,14 @@ use macro_lisp::lisp;
 lisp!(use std::env);
 lisp!(use std::process::exit);
 
-lisp!(defun is_whitespace ((b u8)) bool
+lisp!(fn is_whitespace ((b u8)) bool
     (match b
         (0x20 | 0x09 | 0x85 | 0x0a | 0x0b | 0x0c | 0x0d => (true))
         (_ => (false) ))
 );
 
-lisp!(defun main () ()
-    (defconstant (args Vec<String>) env::args().collect())
+lisp!(fn main () ()
+    (let (args Vec<String>) env::args().collect())
     (if (< (len args) 2)
         (progn
             (println "usage: wc file")
@@ -24,12 +24,12 @@ lisp!(defun main () ()
     (defvar line_count 0)
     (defvar in_word false)
 
-    (defconstant path &args[1])
+    (let path &args[1])
     (with-input-from-file (file path)
         (doiter (byte file.bytes())
             (incf char_count)
 
-            (defconstant b byte.unwrap())
+            (let b byte.unwrap())
             (if (== b 0x0a)
                 (incf line_count))
 

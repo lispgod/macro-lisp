@@ -4,11 +4,11 @@
 use macro_lisp::lisp;
 
 lisp!(pub module module_test
-    (pub defun hello () ()
+    (pub fn hello () ()
         (println "Hello, macro-lisp!")
     )
 );
 
-lisp!(defun main () ()
+lisp!(fn main () ()
     (module_test::hello)
 );
