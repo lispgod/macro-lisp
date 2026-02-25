@@ -4,8 +4,8 @@
 use macro_lisp::lisp;
 
 lisp!(fn main() ()
-    (dotimes (count 100)
-        (let num (1+ count))
+    (for count in (range 0 100)
+        (let num (+ count 1))
         (if (== 0 (% num 3))
             (if (== 0 (% num 5))
                 (println "FizzBuzz")

@@ -3,7 +3,6 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unreachable_code)]
-//#![feature(trace_macros)]
 
 #[cfg(test)]
 mod tests {
@@ -11,32 +10,32 @@ mod tests {
 
     #[test]
     fn test_while_let() {
-        lisp!(progn
-            (defvar num Some(0))
-            (while-let (Some(i) = num)
+        lisp!(block
+            (let mut num Some(0))
+            (while let (Some(i) = num)
                 (if (> i 9)
-                    (setf num None)
-                    (setf num Some(i + 1))
+                    (set num None)
+                    (set num Some(i + 1))
                 )
             )
-            (assert-eq None num)
+            (assert eq None num)
         );
     }
 
     #[test]
     fn test_if_let() {
-        lisp!(progn
+        lisp!(block
             (let number Some(7))
-            (if-let (Some(i) = number)
+            (if let (Some(i) = number)
                 // success let
-                (assert-eq 7 i)
+                (assert eq 7 i)
                 // else
                 (panic "fail if-let")
             )
         );
     }
 
-    lisp!(defstruct Person
+    lisp!(struct Person
         (pub // public members
             (name String)
             (address String)
@@ -46,28 +45,28 @@ mod tests {
         )
     );
 
-    lisp!(defstruct Person2
+    lisp!(struct Person2
         (pub (age i32))
     );
 
-    lisp!(defstruct Point<T>
+    lisp!(struct Point<T>
         ((x T) (y T))
     );
 
     #[test]
     fn test_struct() {
-        lisp!(progn);
+        lisp!(block);
     }
 
     #[test]
     fn test_match() {
-        lisp!(progn
+        lisp!(block
             (let s "test")
 
             (let x (match s
                 ("test" => (1))
                 (_ =>  (-1))))
-            (assert-eq 1 x)
+            (assert eq 1 x)
 
             (match s
                 ("hello" => (println "world"))
@@ -76,15 +75,12 @@ mod tests {
     }
 
     #[test]
-    fn test_lambda() {
-        lisp!(progn
+    fn test_closure() {
+        lisp!(block
             (let f
-                (lambda ((x i32)) (1+ x)))
+                (fn ((x i32)) (+ x 1)))
             (let x (f 5))
-            (assert-eq 6 x)
-
-            (let y ((lambda ((x i32)) (* x x)) 4))
-            (assert-eq 16 y)
+            (assert eq 6 x)
         );
     }
 
@@ -94,110 +90,112 @@ mod tests {
             (loop
                 (loop
                     (break)
-                    (incf x)
+                    (+= x 1)
                 )
-                (incf x)
+                (+= x 1)
                 (break)
             )
-            (assert-eq 1 x)
+            (assert eq 1 x)
         );
     }
 
     #[test]
-    fn test_doiter() {
+    fn test_for_in() {
         let vec = lisp!(vec 1 2 3 4 5);
         lisp!(let ((x 0))
-            (doiter (num vec)
-                (setf x (+ x num)))
-            (assert-eq 15 x)
+            (for num in vec
+                (set x (+ x num)))
+            (assert eq 15 x)
         );
         lisp!(let ((x 0))
-            (doiter (num (vec 1 2 3 4 5))
-                (setf x (+ x num)))
-            (assert-eq 15 x)
+            (for num in (vec 1 2 3 4 5)
+                (set x (+ x num)))
+            (assert eq 15 x)
         );
     }
 
     #[test]
-    fn test_do() {
-        lisp!(progn
-            (let num
-                (do ((x 0 (1+ x))
-                     (y 0 (+ y 2)))
-                ((> x 5) y)))
-            (assert-eq num 12)
+    fn test_do_with_while() {
+        lisp!(block
+            (let mut x 0)
+            (let mut y 0)
+            (while (! (> x 5))
+                (+= x 1)
+                (+= y 2))
+            (let num y)
+            (assert eq num 12)
         );
     }
 
     #[test]
     fn test_let() {
-        lisp!(progn
+        lisp!(block
             (let x 3)
             (let y 5)
             (let ((x 1)
                   (y 2))
-                (incf x)
-                (decf y)
-                (assert-eq x 2)
-                (assert-eq y 1))
-            (assert-eq x 3)
-            (assert-eq y 5)
+                (+= x 1)
+                (-= y 1)
+                (assert eq x 2)
+                (assert eq y 1))
+            (assert eq x 3)
+            (assert eq y 5)
         );
     }
 
     #[test]
-    fn test_dotimes() {
-        lisp!(progn
-            (defvar x 0)
-            (dotimes (y 5)
-                (setf x (+ x y)))
-            (assert-eq x 10)
+    fn test_for_range() {
+        lisp!(block
+            (let mut x 0)
+            (for y in (range 0 5)
+                (set x (+ x y)))
+            (assert eq x 10)
         );
     }
 
     #[test]
     fn test_while() {
-        lisp!(progn
-            (defvar x 0)
+        lisp!(block
+            (let mut x 0)
             (while (< x 10)
-                (incf x))
-            (assert-eq x 10)
+                (+= x 1))
+            (assert eq x 10)
         );
     }
 
     #[test]
     fn test_when_unless() {
-        lisp!(progn
-            (defvar x 0)
+        lisp!(block
+            (let mut x 0)
             (when true
-                (setf x 1))
+                (set x 1))
             (when false
-                (setf x 2))
-            (assert-eq 1 x)
+                (set x 2))
+            (assert eq 1 x)
 
-            (defvar y 0)
+            (let mut y 0)
             (unless true
-                (setf y 1))
+                (set y 1))
             (unless false
-                (setf y 2))
-            (assert-eq y 2)
+                (set y 2))
+            (assert eq y 2)
         );
     }
 
     #[test]
-    fn test_progn() {
-        lisp!(progn
+    fn test_block() {
+        lisp!(block
             (let x 3)
             (let y 4)
-            (defvar z (* x y))
-            (assert-eq 12 z)
+            (let mut z (* x y))
+            (assert eq 12 z)
         );
     }
 
     #[test]
     fn test_if() {
-        lisp!(if (eq 1 1) (println "equal"));
-        lisp!(if (eq 2 2) (println "equal") (println "not equal"));
+        lisp!(if (== 1 1) (println "equal"));
+        lisp!(if (== 2 2) (println "equal") (println "not equal"));
         let x = lisp!(if true (+ 1 1) (+ 2 2));
         assert_eq!(2, x);
 
@@ -243,14 +241,14 @@ mod tests {
     }
 
     #[test]
-    fn test_defvar() {
-        lisp!(defvar x 0);
+    fn test_let_mut() {
+        lisp!(let mut x 0);
         assert_eq!(0, x);
-        lisp!(setf x 1);
+        lisp!(set x 1);
         assert_eq!(1, x);
 
-        lisp!(defvar (x i64) 5);
-        lisp!(defvar (s String) "test".to_owned());
+        lisp!(let mut (x i64) 5);
+        lisp!(let mut (s String) "test".to_owned());
     }
 
     #[test]
@@ -314,8 +312,8 @@ mod tests {
         assert!(lisp!(>= 2 2));
         assert!(!lisp!(>= 1 2));
 
-        assert!(lisp!(eq 5 5));
-        assert!(!lisp!(eq 5 6));
+        assert!(lisp!(== 5 5));
+        assert!(!lisp!(== 5 6));
     }
 
     #[test]
@@ -334,20 +332,14 @@ mod tests {
     }
 
     #[test]
-    fn test_one_plus_minus() {
-        assert_eq!(6, lisp!(1+ 5));
-        assert_eq!(4, lisp!(1- 5));
-    }
-
-    #[test]
-    fn test_incf_decf() {
-        lisp!(progn
-            (defvar x 10)
-            (incf x)
-            (assert-eq 11 x)
-            (decf x)
-            (decf x)
-            (assert-eq 9 x)
+    fn test_compound_assignment() {
+        lisp!(block
+            (let mut x 10)
+            (+= x 1)
+            (assert eq 11 x)
+            (-= x 1)
+            (-= x 1)
+            (assert eq 9 x)
         );
     }
 
@@ -360,12 +352,12 @@ mod tests {
     }
 
     #[test]
-    fn test_lambda_move() {
-        lisp!(progn
+    fn test_closure_move() {
+        lisp!(block
             (let val 42)
-            (let f (lambda move () (+ val 0)))
+            (let f (fn move () (+ val 0)))
             (let result (f))
-            (assert-eq 42 result)
+            (assert eq 42 result)
         );
     }
 
@@ -388,13 +380,13 @@ mod tests {
 
     #[test]
     fn test_loop_continue() {
-        lisp!(progn
-            (defvar sum 0)
-            (dotimes (i 10)
+        lisp!(block
+            (let mut sum 0)
+            (for i in (range 0 10)
                 (if (== (% i 2) 0)
                     (continue))
-                (setf sum (+ sum i)))
-            (assert-eq 25 sum)
+                (set sum (+ sum i)))
+            (assert eq 25 sum)
         );
     }
 
@@ -413,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_nested_if() {
-        lisp!(progn
+        lisp!(block
             (let x 15)
             (let result
                 (if (== (% x 15) 0)
@@ -423,38 +415,38 @@ mod tests {
                         (if (== (% x 5) 0)
                             (format "Buzz")
                             (format "{}" x)))))
-            (assert-eq "FizzBuzz" result)
+            (assert eq "FizzBuzz" result)
         );
     }
 
     #[test]
     fn test_let_with_expr() {
-        lisp!(progn
+        lisp!(block
             (let x (+ 3 4))
-            (assert-eq 7 x)
+            (assert eq 7 x)
 
             (let (y i64) (+ 10 20))
-            (assert-eq 30 y)
+            (assert eq 30 y)
         );
     }
 
     #[test]
-    fn test_setf_with_expr() {
-        lisp!(progn
-            (defvar x 0)
-            (setf x (+ 3 4))
-            (assert-eq 7 x)
+    fn test_set_with_expr() {
+        lisp!(block
+            (let mut x 0)
+            (set x (+ 3 4))
+            (assert eq 7 x)
         );
     }
 
     #[test]
-    fn test_defvar_with_expr() {
-        lisp!(progn
-            (defvar x (+ 1 2))
-            (assert-eq 3 x)
+    fn test_let_mut_with_expr() {
+        lisp!(block
+            (let mut x (+ 1 2))
+            (assert eq 3 x)
 
-            (defvar (y i32) (* 3 4))
-            (assert-eq 12 y)
+            (let mut (y i32) (* 3 4))
+            (assert eq 12 y)
         );
     }
 }
