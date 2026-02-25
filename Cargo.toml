@@ -1,3 +1,6 @@
+[workspace]
+members = ["lisp-macro", "lisp"]
+
 [package]
 name = "macro_lisp"
 version = "0.2.0"
@@ -10,3 +13,4 @@ readme = "README.md"
 description = "Lisp-like DSL for Rust language."
 
 [dependencies]
+lisp = { path = "lisp" }
