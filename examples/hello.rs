@@ -1,10 +1,5 @@
 // run command:
-//    $ rustup run nightly cargo run --example hello
-//
-// if not install nightly, then
-//    $ rustup install nightly
-
-extern crate macro_lisp;
+//    $ cargo run --example hello
 
 use macro_lisp::lisp;
 

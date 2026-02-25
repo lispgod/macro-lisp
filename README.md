@@ -16,8 +16,6 @@ macro_lisp="0.2.0"
 And then import the library using:
 
 ```rust
-extern crate macro_lisp;
-
 use macro_lisp::lisp;
 ```
 
@@ -26,8 +24,6 @@ use macro_lisp::lisp;
 ## factorial
 
 ``` rust
-extern crate macro_lisp;
-
 use macro_lisp::lisp;
 
 lisp!(defun factorial ((n i32)) i32
@@ -43,8 +39,6 @@ lisp!(defun main () ()
 ## wc
 
 ``` rust
-extern crate macro_lisp;
-
 use macro_lisp::lisp;
 
 lisp!(use std::env);

@@ -1,10 +1,5 @@
 // run command:
-//    $ rustup run nightly cargo run --example fizzbuzz
-//
-// if not install nightly, then
-//    $ rustup install nightly
-
-extern crate macro_lisp;
+//    $ cargo run --example fizzbuzz
 
 use macro_lisp::lisp;
 
