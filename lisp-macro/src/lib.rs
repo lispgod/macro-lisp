@@ -91,6 +91,816 @@ fn consume_type_path(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
     (result, &tokens[i..])
 }
 
+/// Evaluate a lisp expression (the contents of a parenthesized group) into Rust code.
+/// This is a mini-evaluator that handles the most common patterns directly,
+/// avoiding the need to delegate to `::lisp::lisp!` (which has hygiene issues with `self`).
+fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.is_empty() {
+        return quote! {};
+    }
+
+    // Single token — return as-is
+    if tokens.len() == 1 {
+        let t = &tokens[0];
+        // If it's a parenthesized group, recurse
+        if let TokenTree::Group(g) = t {
+            if g.delimiter() == Delimiter::Parenthesis {
+                return eval_lisp_expr(&g.stream().into_iter().collect::<Vec<_>>());
+            }
+        }
+        return quote! { #t };
+    }
+
+    // Check first token for special forms
+    match &tokens[0] {
+        TokenTree::Ident(id) => {
+            let name = id.to_string();
+            match name.as_str() {
+                "new" => {
+                    // (new Name (field val) ...)
+                    if tokens.len() >= 2 {
+                        let struct_name = &tokens[1];
+                        let mut fields = Vec::new();
+                        for tt in &tokens[2..] {
+                            if let TokenTree::Group(g) = tt {
+                                if g.delimiter() == Delimiter::Parenthesis {
+                                    let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                    if inner.len() >= 2 {
+                                        let fname = &inner[0];
+                                        let fval = eval_lisp_arg(&inner[1..]);
+                                        fields.push(quote! { #fname: #fval });
+                                    }
+                                }
+                            }
+                        }
+                        return quote! { #struct_name { #(#fields),* } };
+                    }
+                }
+                "macro" => {
+                    // (macro! name args...) — but first token is `macro`, second is `!`
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '!') {
+                        let macro_name_tokens = &tokens[2..];
+                        // Find the macro name (could be path like write)
+                        let mut mi = 0;
+                        let mut name_parts = Vec::new();
+                        while mi < macro_name_tokens.len() {
+                            if let TokenTree::Ident(_) = &macro_name_tokens[mi] {
+                                name_parts.push(macro_name_tokens[mi].clone());
+                                mi += 1;
+                                if mi + 1 < macro_name_tokens.len()
+                                    && is_punct(&macro_name_tokens[mi], ':')
+                                    && is_punct(&macro_name_tokens[mi + 1], ':')
+                                {
+                                    name_parts.push(macro_name_tokens[mi].clone());
+                                    name_parts.push(macro_name_tokens[mi + 1].clone());
+                                    mi += 2;
+                                    continue;
+                                }
+                                break;
+                            }
+                            break;
+                        }
+                        let name_ts: TokenStream2 = name_parts.into_iter().collect();
+                        let args: Vec<TokenStream2> = macro_name_tokens[mi..]
+                            .iter()
+                            .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                            .collect();
+                        return quote! { #name_ts ! (#(#args),*) };
+                    }
+                }
+                "self" => {
+                    // self.x.y...
+                    let all: TokenStream2 = tokens.iter().cloned().collect();
+                    return quote! { #all };
+                }
+                "val" => {
+                    if tokens.len() == 2 {
+                        return eval_lisp_arg(&tokens[1..]);
+                    }
+                }
+                "if" => {
+                    return eval_if(&tokens[1..]);
+                }
+                "match" => {
+                    // Pass through to lisp! for complex matching
+                    let rest: TokenStream2 = tokens.iter().cloned().collect();
+                    return quote! { ::lisp::lisp!(#rest) };
+                }
+                "return" => {
+                    if tokens.len() == 1 {
+                        return quote! { return };
+                    }
+                    let val = eval_lisp_arg(&tokens[1..]);
+                    return quote! { return #val };
+                }
+                "let" => {
+                    return eval_let(&tokens[1..]);
+                }
+                "rust" => {
+                    // (rust { code }) or (rust stmt...)
+                    if tokens.len() >= 2 {
+                        if let TokenTree::Group(g) = &tokens[1] {
+                            if g.delimiter() == Delimiter::Brace {
+                                let inner = g.stream();
+                                return quote! { { #inner } };
+                            }
+                        }
+                    }
+                    // (rust stmt...) — pass through as raw Rust
+                    let rest: TokenStream2 = tokens[1..].iter().cloned().collect();
+                    return quote! { #rest };
+                }
+                "ref" => {
+                    // (ref mut x) or (ref x)
+                    if tokens.len() >= 3 && is_ident(&tokens[1], "mut") {
+                        let e = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { &mut #e };
+                    }
+                    if tokens.len() >= 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { & #e };
+                    }
+                }
+                "deref" => {
+                    if tokens.len() >= 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { * #e };
+                    }
+                }
+                "as" => {
+                    if tokens.len() >= 3 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        let typ: TokenStream2 = tokens[2..].iter().cloned().collect();
+                        return quote! { #e as #typ };
+                    }
+                }
+                "break" => {
+                    if tokens.len() == 1 {
+                        return quote! { break; };
+                    }
+                    let val = eval_lisp_arg(&tokens[1..]);
+                    return quote! { break #val; };
+                }
+                "continue" => {
+                    return quote! { continue; };
+                }
+                "set" => {
+                    // (set var val)
+                    if tokens.len() >= 3 {
+                        let var = &tokens[1];
+                        let val = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #var = #val; };
+                    }
+                }
+                "neg" => {
+                    if tokens.len() >= 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { - #e };
+                    }
+                }
+                "index" => {
+                    if tokens.len() >= 3 {
+                        let coll = eval_lisp_arg(&tokens[1..2]);
+                        let key = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #coll[#key] };
+                    }
+                }
+                "field" => {
+                    if tokens.len() >= 3 {
+                        let obj = eval_lisp_arg(&tokens[1..2]);
+                        let name = &tokens[2];
+                        return quote! { #obj . #name };
+                    }
+                }
+                "tuple" => {
+                    if tokens.len() == 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { (#e,) };
+                    }
+                    let args: Vec<TokenStream2> = tokens[1..]
+                        .iter()
+                        .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                        .collect();
+                    return quote! { (#(#args),*) };
+                }
+                "array" => {
+                    let args: Vec<TokenStream2> = tokens[1..]
+                        .iter()
+                        .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                        .collect();
+                    return quote! { [#(#args),*] };
+                }
+                "vec" => {
+                    let args: Vec<TokenStream2> = tokens[1..]
+                        .iter()
+                        .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                        .collect();
+                    return quote! { vec![#(#args),*] };
+                }
+                "len" => {
+                    if tokens.len() >= 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { #e.len() };
+                    }
+                }
+                "await" => {
+                    if tokens.len() >= 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { #e.await };
+                    }
+                }
+                "false" => { return quote! { false }; }
+                "true" => { return quote! { true }; }
+                "block" => {
+                    let mut stmts = Vec::new();
+                    for tt in &tokens[1..] {
+                        if let TokenTree::Group(g) = tt {
+                            if g.delimiter() == Delimiter::Parenthesis {
+                                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                stmts.push(eval_lisp_expr(&inner));
+                            }
+                        }
+                    }
+                    return quote! { { #(#stmts);* } };
+                }
+                "for" => {
+                    return eval_for(&tokens[1..]);
+                }
+                "while" => {
+                    return eval_while(&tokens[1..]);
+                }
+                "loop" => {
+                    let mut stmts = Vec::new();
+                    for tt in &tokens[1..] {
+                        if let TokenTree::Group(g) = tt {
+                            if g.delimiter() == Delimiter::Parenthesis {
+                                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                stmts.push(eval_lisp_expr(&inner));
+                            }
+                        }
+                    }
+                    return quote! { loop { #(#stmts);* } };
+                }
+                _ => {}
+            }
+        }
+        TokenTree::Punct(p) => {
+            let ch = p.as_char();
+            match ch {
+                '+' => {
+                    // Check for +=
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+                        return quote! { #lhs += #rhs; };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a + #b };
+                    } else if tokens.len() > 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        let mut result = quote! { #a + #b };
+                        for t in &tokens[3..] {
+                            let c = eval_lisp_arg(std::slice::from_ref(t));
+                            result = quote! { #result + #c };
+                        }
+                        return result;
+                    }
+                }
+                '-' => {
+                    // Check for -=
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+                        return quote! { #lhs -= #rhs; };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a - #b };
+                    } else if tokens.len() > 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        let mut result = quote! { #a - #b };
+                        for t in &tokens[3..] {
+                            let c = eval_lisp_arg(std::slice::from_ref(t));
+                            result = quote! { #result - #c };
+                        }
+                        return result;
+                    }
+                }
+                '*' => {
+                    // Check for *=
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+                        return quote! { #lhs *= #rhs; };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a * #b };
+                    }
+                }
+                '/' => {
+                    // Check for /=
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+                        return quote! { #lhs /= #rhs; };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a / #b };
+                    }
+                }
+                '%' => {
+                    // Check for %=
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+                        return quote! { #lhs %= #rhs; };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a % #b };
+                    }
+                }
+                '>' => {
+                    // Check for >= or >>
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        let b = eval_lisp_arg(&tokens[3..4]);
+                        return quote! { #a >= #b };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a > #b };
+                    }
+                }
+                '<' => {
+                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        let b = eval_lisp_arg(&tokens[3..4]);
+                        return quote! { #a <= #b };
+                    }
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[1..2]);
+                        let b = eval_lisp_arg(&tokens[2..3]);
+                        return quote! { #a < #b };
+                    }
+                }
+                '=' => {
+                    if tokens.len() >= 3 {
+                        if is_punct(&tokens[1], '=') {
+                            // ==
+                            let a = eval_lisp_arg(&tokens[2..3]);
+                            let b = eval_lisp_arg(&tokens[3..4]);
+                            return quote! { #a == #b };
+                        }
+                        // assignment
+                        let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+                        return quote! { #lhs = #rhs; };
+                    }
+                }
+                '!' => {
+                    if tokens.len() >= 2 && is_punct(&tokens[1], '=') {
+                        // !=
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        let b = eval_lisp_arg(&tokens[3..4]);
+                        return quote! { #a != #b };
+                    }
+                    if tokens.len() == 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { ! #e };
+                    }
+                }
+                '.' => {
+                    // (. obj field1 field2 ...)
+                    if tokens.len() >= 3 {
+                        let obj = eval_lisp_arg(&tokens[1..2]);
+                        let fields: Vec<&TokenTree> = tokens[2..].iter().collect();
+                        let fields_ts: TokenStream2 = fields.iter().map(|f| {
+                            let f = (*f).clone();
+                            quote! { .#f }
+                        }).collect();
+                        return quote! { #obj #fields_ts };
+                    }
+                }
+                '&' => {
+                    if tokens.len() >= 2 && is_punct(&tokens[1], '&') {
+                        // &&
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        let b = eval_lisp_arg(&tokens[3..4]);
+                        return quote! { #a && #b };
+                    }
+                }
+                '|' => {
+                    if tokens.len() >= 2 && is_punct(&tokens[1], '|') {
+                        // ||
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        let b = eval_lisp_arg(&tokens[3..4]);
+                        return quote! { #a || #b };
+                    }
+                }
+                '?' => {
+                    if tokens.len() == 2 {
+                        let e = eval_lisp_arg(&tokens[1..2]);
+                        return quote! { #e? };
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    // Check for ident.ident pattern (method call or field access)
+    if tokens.len() >= 3 {
+        if let TokenTree::Ident(first) = &tokens[0] {
+            if is_punct(&tokens[1], '.') {
+                // Could be field access chain or method call
+                // Find extent of the path: ident.ident.ident...
+                let mut path_end = 1;
+                while path_end + 1 < tokens.len() {
+                    if is_punct(&tokens[path_end], '.') {
+                        if let TokenTree::Ident(_) = &tokens[path_end + 1] {
+                            path_end += 2;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+                let path_ts: TokenStream2 = tokens[..path_end].iter().cloned().collect();
+                if path_end < tokens.len() {
+                    // Has args - method call
+                    let args: Vec<TokenStream2> = tokens[path_end..]
+                        .iter()
+                        .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                        .collect();
+                    return quote! { #path_ts(#(#args),*) };
+                } else {
+                    // No args — method call with zero args (like the original catch-all)
+                    // EXCEPT for `self.x.y` which is field access
+                    if first.to_string() == "self" {
+                        return quote! { #path_ts };
+                    }
+                    return quote! { #path_ts() };
+                }
+            }
+        }
+    }
+
+    // Check for path::call pattern
+    if tokens.len() >= 3 {
+        if let TokenTree::Ident(_) = &tokens[0] {
+            if is_punct(&tokens[1], ':') && tokens.len() > 2 && is_punct(&tokens[2], ':') {
+                // Path call
+                let (path, rest) = consume_type_path(tokens);
+                let path_ts: TokenStream2 = path.into_iter().collect();
+                if rest.is_empty() {
+                    return quote! { #path_ts };
+                }
+                let args: Vec<TokenStream2> = rest
+                    .iter()
+                    .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                    .collect();
+                return quote! { #path_ts(#(#args),*) };
+            }
+        }
+    }
+
+    // Default: treat first ident as function call
+    if let TokenTree::Ident(id) = &tokens[0] {
+        let args: Vec<TokenStream2> = tokens[1..]
+            .iter()
+            .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+            .collect();
+        return quote! { #id(#(#args),*) };
+    }
+
+    // Fallback: emit tokens as-is
+    let ts: TokenStream2 = tokens.iter().cloned().collect();
+    quote! { #ts }
+}
+
+fn eval_lisp_arg(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.len() == 1 {
+        if let TokenTree::Group(g) = &tokens[0] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                return eval_lisp_expr(&g.stream().into_iter().collect::<Vec<_>>());
+            }
+        }
+        let t = &tokens[0];
+        return quote! { #t };
+    }
+    // Multi-token: treat as expression
+    let ts: TokenStream2 = tokens.iter().cloned().collect();
+    quote! { #ts }
+}
+
+fn eval_if(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.is_empty() { return quote! {}; }
+
+    let cond = eval_lisp_arg(&tokens[0..1]);
+    if tokens.len() >= 3 {
+        let then_branch = eval_lisp_arg(&tokens[1..2]);
+        let else_branch = eval_lisp_arg(&tokens[2..3]);
+        quote! { if #cond { #then_branch } else { #else_branch } }
+    } else if tokens.len() == 2 {
+        let then_branch = eval_lisp_arg(&tokens[1..2]);
+        quote! { if #cond { #then_branch } }
+    } else {
+        quote! { if #cond {} }
+    }
+}
+
+fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.is_empty() { return quote! {}; }
+
+    // (let mut var val) or (let var val)
+    let mut i = 0;
+    let is_mut = is_ident(&tokens[i], "mut");
+    if is_mut { i += 1; }
+
+    if i >= tokens.len() { return quote! {}; }
+
+    // Check for typed let: (let (var Type) val)
+    if let TokenTree::Group(g) = &tokens[i] {
+        if g.delimiter() == Delimiter::Parenthesis {
+            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+            if inner.len() >= 2 {
+                let var_name = &inner[0];
+                let var_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                i += 1;
+                if i < tokens.len() {
+                    let val = eval_lisp_arg(&tokens[i..i+1]);
+                    if is_mut {
+                        return quote! { let mut #var_name: #var_type = #val; };
+                    } else {
+                        return quote! { let #var_name: #var_type = #val; };
+                    }
+                }
+            }
+        }
+    }
+
+    let var_name = &tokens[i];
+    i += 1;
+    if i < tokens.len() {
+        let val = eval_lisp_arg(&tokens[i..i+1]);
+        if is_mut {
+            quote! { let mut #var_name = #val; }
+        } else {
+            quote! { let #var_name = #val; }
+        }
+    } else {
+        if is_mut {
+            quote! { let mut #var_name; }
+        } else {
+            quote! { let #var_name; }
+        }
+    }
+}
+
+fn eval_for(tokens: &[TokenTree]) -> TokenStream2 {
+    // (for var in iter (body)...)
+    if tokens.len() < 3 { return quote! {}; }
+    let var = &tokens[0];
+    // tokens[1] should be `in`
+    let iter_expr = eval_lisp_arg(&tokens[2..3]);
+    let mut body = Vec::new();
+    for tt in &tokens[3..] {
+        if let TokenTree::Group(g) = tt {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                body.push(eval_lisp_expr(&inner));
+            }
+        }
+    }
+    quote! { for #var in #iter_expr { #(#body);* } }
+}
+
+fn eval_while(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.is_empty() { return quote! {}; }
+    let cond = eval_lisp_arg(&tokens[0..1]);
+    let mut body = Vec::new();
+    for tt in &tokens[1..] {
+        if let TokenTree::Group(g) = tt {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                body.push(eval_lisp_expr(&inner));
+            }
+        }
+    }
+    quote! { while #cond { #(#body);* } }
+}
+
+/// Parse a lisp-style method/fn definition from tokens inside an impl/trait body.
+/// Input: the contents of a (...) group, e.g. `fn foo ((self &Self) (x i32)) RetType (body)`
+/// Also handles: `type Name = Type`
+/// Returns the Rust code as TokenStream2.
+fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+    if tokens.is_empty() {
+        return Ok(quote! {});
+    }
+
+    // Check for `type Name = Type`
+    if is_ident(&tokens[0], "type") {
+        let rest: TokenStream2 = tokens[1..].iter().cloned().collect();
+        return Ok(quote! { type #rest; });
+    }
+
+    // Parse fn definition
+    let mut i = 0;
+
+    // Collect attributes
+    let mut attrs = Vec::new();
+    while i < tokens.len() {
+        if let TokenTree::Punct(p) = &tokens[i] {
+            if p.as_char() == '#' {
+                attrs.push(tokens[i].clone());
+                i += 1;
+                if i < tokens.len() {
+                    attrs.push(tokens[i].clone());
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        break;
+    }
+    let attrs_ts: TokenStream2 = attrs.into_iter().collect();
+
+    // Collect qualifiers: pub, const, unsafe, async
+    let mut qualifiers = Vec::new();
+    loop {
+        if i >= tokens.len() { break; }
+        match &tokens[i] {
+            TokenTree::Ident(id) if *id == "pub" || *id == "const" || *id == "unsafe" || *id == "async" => {
+                qualifiers.push(tokens[i].clone());
+                i += 1;
+            }
+            TokenTree::Ident(id) if *id == "extern" => {
+                qualifiers.push(tokens[i].clone());
+                i += 1;
+                if i < tokens.len() {
+                    if let TokenTree::Literal(_) = &tokens[i] {
+                        qualifiers.push(tokens[i].clone());
+                        i += 1;
+                    }
+                }
+            }
+            _ => break,
+        }
+    }
+    let quals_ts: TokenStream2 = qualifiers.into_iter().collect();
+
+    // Skip `fn` keyword
+    if i < tokens.len() && is_ident(&tokens[i], "fn") {
+        i += 1;
+    } else {
+        // Not a fn definition — pass through to lisp!
+        let all: TokenStream2 = tokens.iter().cloned().collect();
+        return Ok(quote! { ::lisp::lisp! { #all } });
+    }
+
+    // Function name
+    let fn_name = if i < tokens.len() {
+        if let TokenTree::Ident(id) = &tokens[i] {
+            let id = id.clone();
+            i += 1;
+            id
+        } else {
+            return Err(syn::Error::new(Span::call_site(), "expected function name"));
+        }
+    } else {
+        return Err(syn::Error::new(Span::call_site(), "expected function name"));
+    };
+
+    // Check for <...> generic params
+    let mut generics = None;
+    if i < tokens.len() && is_punct(&tokens[i], '<') {
+        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
+        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
+        generics = Some(angle_ts);
+        i = tokens.len() - rest.len();
+    }
+
+    // Parse parameter list: a parenthesized group containing (name Type) pairs
+    let mut params = Vec::new();
+    if i < tokens.len() {
+        if let TokenTree::Group(g) = &tokens[i] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let param_tokens: Vec<TokenTree> = g.stream().into_iter().collect();
+                for tt in &param_tokens {
+                    if let TokenTree::Group(pg) = tt {
+                        if pg.delimiter() == Delimiter::Parenthesis {
+                            let inner: Vec<TokenTree> = pg.stream().into_iter().collect();
+                            if inner.len() >= 2 {
+                                let param_name = &inner[0];
+                                let param_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                                params.push(quote! { #param_name: #param_type });
+                            }
+                        }
+                    }
+                }
+                i += 1;
+            }
+        }
+    }
+
+    // Parse return type: everything until `where`, a parenthesized group (body start), or a literal
+    let mut return_type_tokens = Vec::new();
+    while i < tokens.len() {
+        if is_ident(&tokens[i], "where") { break; }
+        if let TokenTree::Group(g) = &tokens[i] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                break;
+            }
+        }
+        if let TokenTree::Literal(_) = &tokens[i] {
+            break;
+        }
+        return_type_tokens.push(tokens[i].clone());
+        i += 1;
+    }
+    let return_type = if return_type_tokens.is_empty() {
+        None
+    } else {
+        let rt: TokenStream2 = return_type_tokens.into_iter().collect();
+        Some(rt)
+    };
+
+    // Check for `where` clause
+    let mut where_clause = None;
+    if i < tokens.len() && is_ident(&tokens[i], "where") {
+        i += 1;
+        if i < tokens.len() {
+            if let TokenTree::Group(g) = &tokens[i] {
+                if g.delimiter() == Delimiter::Parenthesis {
+                    let inner = g.stream();
+                    where_clause = Some(inner);
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    // Remaining tokens: body expressions (parenthesized groups) or bare expr
+    let mut body_items = Vec::new();
+    let mut has_body = false;
+    while i < tokens.len() {
+        has_body = true;
+        if let TokenTree::Group(g) = &tokens[i] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                body_items.push(eval_lisp_expr(&inner));
+                i += 1;
+                continue;
+            }
+        }
+        // Bare expression token
+        let tok = tokens[i].clone();
+        body_items.push(quote! { #tok });
+        i += 1;
+    }
+
+    let gen = match &generics {
+        Some(g) => quote! { <#g> },
+        None => quote! {},
+    };
+    let ret = match &return_type {
+        Some(r) => quote! { -> #r },
+        None => quote! {},
+    };
+    let where_cl = match &where_clause {
+        Some(w) => quote! { where #w },
+        None => quote! {},
+    };
+
+    if has_body {
+        Ok(quote! {
+            #attrs_ts
+            #quals_ts fn #fn_name #gen (#(#params),*) #ret #where_cl {
+                #(#body_items);*
+            }
+        })
+    } else {
+        // Declaration only (no body) — emit semicolon
+        Ok(quote! {
+            #attrs_ts
+            #quals_ts fn #fn_name #gen (#(#params),*) #ret #where_cl;
+        })
+    }
+}
+
 // ─── lisp_assign! ───────────────────────────────────────────────────────────
 //
 // Usage: lisp_assign!(= lhs_tokens... rhs)
@@ -306,8 +1116,9 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     while i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
             if g.delimiter() == Delimiter::Parenthesis {
-                let inner = g.stream();
-                body_items.push(quote! { ::lisp::lisp! { #inner } });
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                let item = parse_impl_body_item(&inner)?;
+                body_items.push(item);
             }
         }
         i += 1;
@@ -418,8 +1229,9 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     while i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
             if g.delimiter() == Delimiter::Parenthesis {
-                let inner = g.stream();
-                body_items.push(quote! { ::lisp::lisp! { #inner } });
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                let item = parse_impl_body_item(&inner)?;
+                body_items.push(item);
             }
         }
         i += 1;

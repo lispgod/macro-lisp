@@ -400,17 +400,11 @@ macro_rules! lisp {
     ( $(#[$m:meta])* pub enum $name:ident $( ( $($variant:tt)+ ) )+ ) => ( $crate::lisp_enum!($(#[$m])* pub enum $name $( ( $($variant)+ ) )+); );
     ( $(#[$m:meta])* enum $name:ident $( ( $($variant:tt)+ ) )+ ) => ( $crate::lisp_enum!($(#[$m])* enum $name $( ( $($variant)+ ) )+); );
 
-    // trait (simple — fast path)
-    ( $(#[$m:meta])* pub trait $name:ident $( ( $($e:tt)* ) )* ) => ( $(#[$m]);* pub trait $name { $( $crate::lisp!{$($e)*} )* } );
-    ( $(#[$m:meta])* trait $name:ident $( ( $($e:tt)* ) )* ) => ( $(#[$m]);* trait $name { $( $crate::lisp!{$($e)*} )* } );
-    // trait (with generics/supertraits/where — dispatched to proc macro)
-    ( $(#[$m:meta])* pub trait $name:ident $($rest:tt)+ ) => ( $crate::lisp_trait!(pub $name $($rest)+); );
-    ( $(#[$m:meta])* trait $name:ident $($rest:tt)+ ) => ( $crate::lisp_trait!($name $($rest)+); );
+    // trait — always dispatched to proc macro for proper fn handling
+    ( $(#[$m:meta])* pub trait $name:ident $($rest:tt)* ) => ( $crate::lisp_trait!(pub $name $($rest)*); );
+    ( $(#[$m:meta])* trait $name:ident $($rest:tt)* ) => ( $crate::lisp_trait!($name $($rest)*); );
 
-    // impl (simple — fast path)
-    (impl $trait_name:ident for $typ:ident $( ( $($e:tt)* ) )* ) => ( impl $trait_name for $typ { $( $crate::lisp!{$($e)*} )* } );
-    (impl $typ:ident $( ( $($e:tt)* ) )* ) => ( impl $typ { $( $crate::lisp!{$($e)*} )* } );
-    // impl (complex — dispatched to proc macro)
+    // impl — always dispatched to proc macro for proper fn handling
     (impl $($tokens:tt)+) => ( $crate::lisp_impl!($($tokens)+); );
 
     // type alias
