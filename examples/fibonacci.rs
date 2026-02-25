@@ -12,4 +12,4 @@ lisp!(fn main () ()
     (for i in (.. 0 10)
         (let n (+ i 1))
         (let result (fibonacci n))
-        (macro! println "fib({}) = {}" n result)));
+        (println! "fib({}) = {}" n result)));

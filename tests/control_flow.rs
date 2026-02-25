@@ -120,7 +120,7 @@ fn while_let_loop() {
             (if (> i 9)
                 (= num None)
                 (= num Some(i + 1))))
-        (macro! assert_eq 10 last)
+        (assert_eq! 10 last)
     );
 }
 
@@ -144,7 +144,7 @@ fn for_in_inline_vec() {
     lisp!(let ((sum 0))
         (for num in (vec 10 20 30)
             (= sum (+ sum num)))
-        (macro! assert_eq 60 sum)
+        (assert_eq! 60 sum)
     );
 }
 
@@ -163,7 +163,7 @@ fn loop_with_continue() {
             (if (== (% i 2) 0)
                 (continue))
             (= sum (+ sum i)))
-        (macro! assert_eq 25 sum)
+        (assert_eq! 25 sum)
     );
 }
 
@@ -181,11 +181,11 @@ fn block_returns_last() {
 fn nested_if() {
     let x = 15;
     let result = lisp!(if (== (% x 15) 0)
-        (macro! format "FizzBuzz")
+        (format! "FizzBuzz")
         (if (== (% x 3) 0)
-            (macro! format "Fizz")
+            (format! "Fizz")
             (if (== (% x 5) 0)
-                (macro! format "Buzz")
-                (macro! format "{}" x))));
+                (format! "Buzz")
+                (format! "{}" x))));
     assert_eq!(result, "FizzBuzz");
 }

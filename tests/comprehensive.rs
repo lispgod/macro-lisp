@@ -86,7 +86,7 @@ lisp!(impl Vec2
 
 #[test]
 fn struct_with_impl() {
-    let v = lisp!(struct - lit Vec2 (x 3.0) (y 4.0));
+    let v = lisp!(new Vec2 (x 3.0) (y 4.0));
     assert_eq!(v.x, 3.0);
     assert_eq!(v.y, 4.0);
     let mag = v.magnitude();
@@ -155,7 +155,7 @@ fn scoped_bindings_complex() {
 
 #[test]
 fn format_and_print() {
-    let s = lisp!(macro! format "{} + {} = {}" 2 3 5);
+    let s = lisp!(format! "{} + {} = {}" 2 3 5);
     assert_eq!(s, "2 + 3 = 5");
 }
 

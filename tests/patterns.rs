@@ -96,7 +96,7 @@ fn while_let_pattern() {
         (let mut sum 0)
         (while let (Some(top) = (stack.pop))
             (+= sum top))
-        (macro! assert_eq 6 sum)
+        (assert_eq! 6 sum)
     );
 }
 

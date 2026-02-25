@@ -600,6 +600,21 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
         _ => {}
     }
 
+    // Check for ident! pattern (macro invocation shorthand: (name! args...) → name!(args...))
+    if tokens.len() >= 2 {
+        if let TokenTree::Ident(_) = &tokens[0] {
+            if is_punct(&tokens[1], '!') {
+                // Collect the macro name (may be path::name)
+                let macro_name = &tokens[0];
+                let args: Vec<TokenStream2> = tokens[2..]
+                    .iter()
+                    .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                    .collect();
+                return quote! { #macro_name ! (#(#args),*) };
+            }
+        }
+    }
+
     // Check for ident.ident pattern (method call or field access)
     if tokens.len() >= 3 {
         if let TokenTree::Ident(first) = &tokens[0] {
@@ -640,11 +655,19 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
     if tokens.len() >= 3 {
         if let TokenTree::Ident(_) = &tokens[0] {
             if is_punct(&tokens[1], ':') && tokens.len() > 2 && is_punct(&tokens[2], ':') {
-                // Path call
+                // Path call or path::macro!
                 let (path, rest) = consume_type_path(tokens);
                 let path_ts: TokenStream2 = path.into_iter().collect();
                 if rest.is_empty() {
                     return quote! { #path_ts };
+                }
+                // Check for path::name! pattern (macro invocation)
+                if !rest.is_empty() && is_punct(&rest[0], '!') {
+                    let args: Vec<TokenStream2> = rest[1..]
+                        .iter()
+                        .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                        .collect();
+                    return quote! { #path_ts ! (#(#args),*) };
                 }
                 let args: Vec<TokenStream2> = rest
                     .iter()

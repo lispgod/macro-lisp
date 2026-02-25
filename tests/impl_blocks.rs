@@ -20,7 +20,7 @@ lisp!(struct MyNum ((val i32)));
 
 lisp!(impl core::fmt::Display for MyNum
     (fn fmt ((self &Self) (f &mut core::fmt::Formatter)) core::fmt::Result
-        (macro! write f "{}" (self.val))));
+        (write! f "{}" (self.val))));
 
 #[test]
 fn impl_trait_with_path() {
@@ -34,7 +34,7 @@ struct V2 { x: i32, y: i32 }
 lisp!(impl core::ops::Add for V2
     (type Output = V2)
     (fn add ((self Self) (rhs Self)) V2
-        (struct - lit V2 (x (+ (self.x) (. rhs x))) (y (+ (self.y) (. rhs y))))));
+        (new V2 (x (+ (self.x) (. rhs x))) (y (+ (self.y) (. rhs y))))));
 
 #[test]
 fn impl_add_with_associated_type() {

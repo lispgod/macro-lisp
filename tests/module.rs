@@ -8,7 +8,7 @@ lisp!(mod module_test
     (fn do_nothing())
 
     (fn hello () ()
-        (macro! println "Hello")
+        (println! "Hello")
     )
 
     (fn add ((x i32) (y i32)) i32
@@ -17,6 +17,6 @@ lisp!(mod module_test
 
     (#[test] fn test_add () ()
         (let num (add 1 2))
-        (macro! assert_eq 3 num)
+        (assert_eq! 3 num)
     )
 );

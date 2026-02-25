@@ -4,7 +4,7 @@ use macro_lisp::lisp;
 lisp!(trait Describable
     (fn name ((self &Self)) &str)
     (fn describe ((self &Self)) String
-        (macro! format "I am {}" (Describable::name self))));
+        (format! "I am {}" (Describable::name self))));
 
 lisp!(struct Cat);
 lisp!(impl Describable for Cat
