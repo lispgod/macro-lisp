@@ -195,7 +195,7 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                         && is_punct(&tokens[1], '-')
                     {
                         if let TokenTree::Ident(lit_id) = &tokens[2] {
-                            if lit_id.to_string() == "lit" {
+                            if *lit_id == "lit" {
                                 let struct_name = &tokens[3];
                                 let mut fields = Vec::new();
                                 for tt in &tokens[4..] {
