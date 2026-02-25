@@ -13,6 +13,41 @@ fn is_ident(tt: &TokenTree, name: &str) -> bool {
     matches!(tt, TokenTree::Ident(i) if *i == name)
 }
 
+// ─── Helper: parse a self parameter from tokens inside a parameter group ───
+// Returns Some(token_stream) if it's a self parameter form, None otherwise.
+// Only handles shorthand forms where self doesn't have a type annotation;
+// (self Type) falls through to regular parameter parsing to preserve token spans.
+fn parse_self_param(inner: &[TokenTree]) -> Option<TokenStream2> {
+    if inner.is_empty() {
+        return None;
+    }
+    // (self) → self
+    if inner.len() == 1 && is_ident(&inner[0], "self") {
+        let s = &inner[0];
+        return Some(quote! { #s });
+    }
+    // (&self) → &self
+    if inner.len() == 2 && is_punct(&inner[0], '&') && is_ident(&inner[1], "self") {
+        let amp = &inner[0];
+        let s = &inner[1];
+        return Some(quote! { #amp #s });
+    }
+    // (&mut self) → &mut self
+    if inner.len() == 3 && is_punct(&inner[0], '&') && is_ident(&inner[1], "mut") && is_ident(&inner[2], "self") {
+        let amp = &inner[0];
+        let m = &inner[1];
+        let s = &inner[2];
+        return Some(quote! { #amp #m #s });
+    }
+    // (mut self) → mut self
+    if inner.len() == 2 && is_ident(&inner[0], "mut") && is_ident(&inner[1], "self") {
+        let m = &inner[0];
+        let s = &inner[1];
+        return Some(quote! { #m #s });
+    }
+    None
+}
+
 // ─── Helper: consume balanced angle brackets from tokens, returning (angle_contents, rest) ───
 // Expects tokens[0] to be '<'
 fn consume_angle_brackets(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
@@ -817,20 +852,30 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
 
     // Parse parameter list: a parenthesized group containing (name Type) pairs
+    // First parameter may be a self parameter: (self), (&self), (&mut self), (mut self), (self Type)
     let mut params = Vec::new();
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
             if g.delimiter() == Delimiter::Parenthesis {
                 let param_tokens: Vec<TokenTree> = g.stream().into_iter().collect();
+                let mut is_first_param = true;
                 for tt in &param_tokens {
                     if let TokenTree::Group(pg) = tt {
                         if pg.delimiter() == Delimiter::Parenthesis {
                             let inner: Vec<TokenTree> = pg.stream().into_iter().collect();
+                            if is_first_param {
+                                if let Some(self_param) = parse_self_param(&inner) {
+                                    params.push(self_param);
+                                    is_first_param = false;
+                                    continue;
+                                }
+                            }
                             if inner.len() >= 2 {
                                 let param_name = &inner[0];
                                 let param_type: TokenStream2 = inner[1..].iter().cloned().collect();
                                 params.push(quote! { #param_name: #param_type });
                             }
+                            is_first_param = false;
                         }
                     }
                 }
@@ -1675,20 +1720,30 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
 
     // 6. Consume parameter list: a parenthesized group containing (name Type) pairs
+    // First parameter may be a self parameter: (self), (&self), (&mut self), (mut self), (self Type)
     let mut params = Vec::new();
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
             if g.delimiter() == Delimiter::Parenthesis {
                 let param_tokens: Vec<TokenTree> = g.stream().into_iter().collect();
+                let mut is_first_param = true;
                 for tt in &param_tokens {
                     if let TokenTree::Group(pg) = tt {
                         if pg.delimiter() == Delimiter::Parenthesis {
                             let inner: Vec<TokenTree> = pg.stream().into_iter().collect();
+                            if is_first_param {
+                                if let Some(self_param) = parse_self_param(&inner) {
+                                    params.push(self_param);
+                                    is_first_param = false;
+                                    continue;
+                                }
+                            }
                             if inner.len() >= 2 {
                                 let param_name = &inner[0];
                                 let param_type: TokenStream2 = inner[1..].iter().cloned().collect();
                                 params.push(quote! { #param_name: #param_type });
                             }
+                            is_first_param = false;
                         }
                     }
                 }
