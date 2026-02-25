@@ -26,7 +26,7 @@ mod tests {
     #[test]
     fn test_if_let() {
         lisp!(progn
-            (defconstant number Some(7))
+            (let number Some(7))
             (if-let (Some(i) = number)
                 // success let
                 (assert-eq 7 i)
@@ -62,9 +62,9 @@ mod tests {
     #[test]
     fn test_match() {
         lisp!(progn
-            (defconstant s "test")
+            (let s "test")
 
-            (defconstant x (match s
+            (let x (match s
                 ("test" => (1))
                 (_ =>  (-1))))
             (assert-eq 1 x)
@@ -78,12 +78,12 @@ mod tests {
     #[test]
     fn test_lambda() {
         lisp!(progn
-            (defconstant f
+            (let f
                 (lambda ((x i32)) (1+ x)))
-            (defconstant x (f 5))
+            (let x (f 5))
             (assert-eq 6 x)
 
-            (defconstant y ((lambda ((x i32)) (* x x)) 4))
+            (let y ((lambda ((x i32)) (* x x)) 4))
             (assert-eq 16 y)
         );
     }
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_do() {
         lisp!(progn
-            (defconstant num
+            (let num
                 (do ((x 0 (1+ x))
                      (y 0 (+ y 2)))
                 ((> x 5) y)))
@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn test_let() {
         lisp!(progn
-            (defconstant x 3)
-            (defconstant y 5)
+            (let x 3)
+            (let y 5)
             (let ((x 1)
                   (y 2))
                 (incf x)
@@ -187,8 +187,8 @@ mod tests {
     #[test]
     fn test_progn() {
         lisp!(progn
-            (defconstant x 3)
-            (defconstant y 4)
+            (let x 3)
+            (let y 4)
             (defvar z (* x y))
             (assert-eq 12 z)
         );
@@ -204,22 +204,22 @@ mod tests {
         lisp!(if (<= 1 2) (println "True") (println "False"));
     }
 
-    lisp!(defun hello () ()
+    lisp!(fn hello () ()
         (println "Hello")
     );
 
-    lisp!(defun add1 ((x i32)) i32
+    lisp!(fn add1 ((x i32)) i32
         (+ x 1)
     );
 
-    lisp!(defun add ((x i32) (y i32)) i32
+    lisp!(fn add ((x i32) (y i32)) i32
         (+ x y)
     );
 
-    lisp!(defun do_nothing());
+    lisp!(fn do_nothing());
 
     #[test]
-    fn test_defun() {
+    fn test_fn() {
         let x = lisp!(add1 5);
         assert_eq!(6, x);
 
@@ -235,11 +235,11 @@ mod tests {
     }
 
     #[test]
-    fn test_defconstant() {
-        lisp!(defconstant x 3);
+    fn test_let_binding() {
+        lisp!(let x 3);
         assert_eq!(3, x);
 
-        lisp!(defconstant (y &str) "hello");
+        lisp!(let (y &str) "hello");
     }
 
     #[test]
@@ -362,19 +362,19 @@ mod tests {
     #[test]
     fn test_lambda_move() {
         lisp!(progn
-            (defconstant val 42)
-            (defconstant f (lambda move () (+ val 0)))
-            (defconstant result (f))
+            (let val 42)
+            (let f (lambda move () (+ val 0)))
+            (let result (f))
             (assert-eq 42 result)
         );
     }
 
-    lisp!(pub defun pub_add ((a i32) (b i32)) i32
+    lisp!(pub fn pub_add ((a i32) (b i32)) i32
         (+ a b)
     );
 
     #[test]
-    fn test_pub_defun() {
+    fn test_pub_fn() {
         let result = lisp!(pub_add 10 20);
         assert_eq!(30, result);
     }
@@ -398,13 +398,13 @@ mod tests {
         );
     }
 
-    lisp!(defun fibonacci ((n i32)) i32
+    lisp!(fn fibonacci ((n i32)) i32
         (if (<= n 1)
             n
             (+ (fibonacci (- n 1)) (fibonacci (- n 2)))));
 
     #[test]
-    fn test_recursive_defun() {
+    fn test_recursive_fn() {
         assert_eq!(0, lisp!(fibonacci 0));
         assert_eq!(1, lisp!(fibonacci 1));
         assert_eq!(1, lisp!(fibonacci 2));
@@ -414,8 +414,8 @@ mod tests {
     #[test]
     fn test_nested_if() {
         lisp!(progn
-            (defconstant x 15)
-            (defconstant result
+            (let x 15)
+            (let result
                 (if (== (% x 15) 0)
                     (format "FizzBuzz")
                     (if (== (% x 3) 0)
@@ -428,12 +428,12 @@ mod tests {
     }
 
     #[test]
-    fn test_defconstant_with_expr() {
+    fn test_let_with_expr() {
         lisp!(progn
-            (defconstant x (+ 3 4))
+            (let x (+ 3 4))
             (assert-eq 7 x)
 
-            (defconstant (y i64) (+ 10 20))
+            (let (y i64) (+ 10 20))
             (assert-eq 30 y)
         );
     }

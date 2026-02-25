@@ -147,7 +147,13 @@ macro_rules! lisp {
     // let,do,etc
     //
 
-    // let
+    // let (immutable binding, renamed from defconstant)
+    (let ($var:ident $typ:ty) ( $($e:tt)+ ) ) => (let $var:$typ = $crate::lisp!( $($e)+););
+    (let ($var:ident $typ:ty) $e:expr) => (let $var:$typ = $e;);
+    (let $var:ident ( $($e:tt)+ ) ) => (let $var = $crate::lisp!( $($e)+ ););
+    (let $var:ident $e:expr) => (let $var = $e;);
+
+    // let (scoped mutable bindings)
     (let ( $( ($var:ident $e:tt) )* )
         $( ( $($e2:tt)* ) )*
     ) => ({
@@ -247,8 +253,8 @@ macro_rules! lisp {
          }
     );
 
-    // defun & return
-    ( $(#[$m:meta])* defun $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+    // fn & return
+    ( $(#[$m:meta])* fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
         $( ( $($e:tt)* ))*
     ) => (
         $(#[$m]);*
@@ -256,8 +262,8 @@ macro_rules! lisp {
             $( $crate::lisp!( $($e)* ) );*
         }
     );
-    // defun & void
-    ( $(#[$m:meta])* defun $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+    // fn & void
+    ( $(#[$m:meta])* fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
         $( ( $($e:tt)* ))*
     ) => (
         $(#[$m]);*
@@ -265,8 +271,8 @@ macro_rules! lisp {
             $( $crate::lisp!( $($e)* ) );*
         }
     );
-    // pub defun & return
-    ( $(#[$m:meta])* pub defun $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+    // pub fn & return
+    ( $(#[$m:meta])* pub fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
         $( ( $($e:tt)* ))*
     ) => (
         $(#[$m]);*
@@ -274,8 +280,8 @@ macro_rules! lisp {
             $( $crate::lisp!( $($e)* ) );*
         }
     );
-    // pub defun & void
-    ( $(#[$m:meta])* pub defun $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+    // pub fn & void
+    ( $(#[$m:meta])* pub fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
         $( ( $($e:tt)* ))*
     ) => (
         $(#[$m]);*
@@ -283,12 +289,6 @@ macro_rules! lisp {
             $( $crate::lisp!( $($e)* ) );*
         }
     );
-
-    // defconstant
-    (defconstant ($var:ident $typ:ty) ( $($e:tt)+ ) ) => (let $var:$typ = $crate::lisp!( $($e)+););
-    (defconstant ($var:ident $typ:ty) $e:expr) => (let $var:$typ = $e;);
-    (defconstant $var:ident ( $($e:tt)+ ) ) => (let $var = $crate::lisp!( $($e)+ ););
-    (defconstant $var:ident $e:expr) => (let $var = $e;);
 
     // defvar
     (defvar ($var:ident $typ:ty) ( $($e:tt)+ )) => (let mut $var:$typ = $crate::lisp!( $($e)+););

@@ -10,7 +10,7 @@ mod file_tests {
     #[test]
     fn test_with_input_from_file() {
         lisp!(progn
-            (defconstant filename "target/dummy.data")
+            (let filename "target/dummy.data")
             (with-output-to-new-file (file filename)
                 (write-all file b"Hello, world!"))
             (defvar s String::new())
