@@ -3,6 +3,24 @@ use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Delimiter, TokenTree, Spacing, Punct, Span};
 use quote::quote;
 
+// ─── Helper: parse a space-separated list of types from a token stream ───
+// In the lisp DSL, tuple struct fields are written as `(Type1 Type2 ...)` without commas.
+// This uses syn to greedily parse each complete type.
+fn parse_type_list(stream: TokenStream2) -> syn::Result<Vec<syn::Type>> {
+    struct TypeList(Vec<syn::Type>);
+    impl syn::parse::Parse for TypeList {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            let mut types = Vec::new();
+            while !input.is_empty() {
+                types.push(input.parse::<syn::Type>()?);
+            }
+            Ok(TypeList(types))
+        }
+    }
+    let list = syn::parse2::<TypeList>(stream)?;
+    Ok(list.0)
+}
+
 // ─── Helper: check if a token tree is a specific punctuation character ───
 fn is_punct(tt: &TokenTree, ch: char) -> bool {
     matches!(tt, TokenTree::Punct(p) if p.as_char() == ch)
@@ -11,6 +29,18 @@ fn is_punct(tt: &TokenTree, ch: char) -> bool {
 // ─── Helper: check if a token tree is a specific ident ───
 fn is_ident(tt: &TokenTree, name: &str) -> bool {
     matches!(tt, TokenTree::Ident(i) if *i == name)
+}
+
+// ─── Helper: check if a token tree is a literal (or a literal wrapped in an invisible group) ───
+// macro_rules! fragment captures like `$abi:literal` wrap the literal in a Group { delimiter: None }.
+fn is_literal_like(tt: &TokenTree) -> bool {
+    match tt {
+        TokenTree::Literal(_) => true,
+        TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
+            g.stream().into_iter().any(|t| matches!(t, TokenTree::Literal(_)))
+        }
+        _ => false,
+    }
 }
 
 // ─── Helper: parse a self parameter from tokens inside a parameter group ───
@@ -802,25 +832,26 @@ fn eval_while(tokens: &[TokenTree]) -> TokenStream2 {
     quote! { while #cond { #(#body);* } }
 }
 
-/// Parse a lisp-style method/fn definition from tokens inside an impl/trait body.
-/// Input: the contents of a (...) group, e.g. `fn foo ((self &Self) (x i32)) RetType (body)`
-/// Also handles: `type Name = Type`
-/// Returns the Rust code as TokenStream2.
-fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
-    if tokens.is_empty() {
-        return Ok(quote! {});
-    }
+// ─── Shared fn signature parsing ─────────────────────────────────────────────
+// Extracted from parse_fn and parse_impl_body_item to eliminate duplication.
+// Parses: attributes, qualifiers, fn keyword, name, generics, params, return type, where clause.
 
-    // Check for `type Name = Type`
-    if is_ident(&tokens[0], "type") {
-        let rest: TokenStream2 = tokens[1..].iter().cloned().collect();
-        return Ok(quote! { type #rest; });
-    }
+struct FnSignature {
+    attrs: TokenStream2,
+    quals: TokenStream2,
+    name: proc_macro2::Ident,
+    generics: Option<TokenStream2>,
+    params: Vec<TokenStream2>,
+    return_type: Option<TokenStream2>,
+    where_clause: Option<TokenStream2>,
+    body_start: usize,
+}
 
-    // Parse fn definition
+/// Parse the fn signature portion from tokens, returning None if `fn` keyword is not found.
+fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, /* not-a-fn fallback tokens */ Option<TokenStream2>)>> {
     let mut i = 0;
 
-    // Collect attributes
+    // 1. Collect attributes
     let mut attrs = Vec::new();
     while i < tokens.len() {
         if let TokenTree::Punct(p) = &tokens[i] {
@@ -838,7 +869,7 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
     let attrs_ts: TokenStream2 = attrs.into_iter().collect();
 
-    // Collect qualifiers: pub, pub(crate), pub(super), const, unsafe, async
+    // 2. Collect qualifiers: pub, pub(crate), pub(super), const, unsafe, async, extern "C"
     let mut qualifiers = Vec::new();
     loop {
         if i >= tokens.len() { break; }
@@ -846,7 +877,6 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             TokenTree::Ident(id) if *id == "pub" => {
                 qualifiers.push(tokens[i].clone());
                 i += 1;
-                // Check for pub(...) — pub(crate), pub(super), pub(in path)
                 if i < tokens.len() {
                     if let TokenTree::Group(g) = &tokens[i] {
                         if g.delimiter() == Delimiter::Parenthesis {
@@ -863,11 +893,9 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             TokenTree::Ident(id) if *id == "extern" => {
                 qualifiers.push(tokens[i].clone());
                 i += 1;
-                if i < tokens.len() {
-                    if let TokenTree::Literal(_) = &tokens[i] {
-                        qualifiers.push(tokens[i].clone());
-                        i += 1;
-                    }
+                if i < tokens.len() && is_literal_like(&tokens[i]) {
+                    qualifiers.push(tokens[i].clone());
+                    i += 1;
                 }
             }
             _ => break,
@@ -875,16 +903,14 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
     let quals_ts: TokenStream2 = qualifiers.into_iter().collect();
 
-    // Skip `fn` keyword
+    // 3. Skip `fn` keyword — if absent, this isn't a function
     if i < tokens.len() && is_ident(&tokens[i], "fn") {
         i += 1;
     } else {
-        // Not a fn definition — pass through to lisp!
-        let all: TokenStream2 = tokens.iter().cloned().collect();
-        return Ok(quote! { ::lisp::lisp! { #all } });
+        return Ok(None);
     }
 
-    // Function name
+    // 4. Function name
     let fn_name = if i < tokens.len() {
         if let TokenTree::Ident(id) = &tokens[i] {
             let id = id.clone();
@@ -897,7 +923,7 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         return Err(syn::Error::new(Span::call_site(), "expected function name"));
     };
 
-    // Check for <...> generic params
+    // 5. Check for <...> generic params
     let mut generics = None;
     if i < tokens.len() && is_punct(&tokens[i], '<') {
         let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
@@ -906,8 +932,7 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         i = tokens.len() - rest.len();
     }
 
-    // Parse parameter list: a parenthesized group containing (name Type) pairs
-    // First parameter may be a self parameter: (self), (&self), (&mut self), (mut self), (self Type)
+    // 6. Parse parameter list: a parenthesized group containing (name Type) pairs
     let mut params = Vec::new();
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
@@ -939,20 +964,31 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         }
     }
 
-    // Parse return type: everything until `where`, a parenthesized group (body start), or a literal
+    // 7. Parse return type
     let mut return_type_tokens = Vec::new();
-    while i < tokens.len() {
-        if is_ident(&tokens[i], "where") { break; }
+    // Check for () as unit return type when followed by more tokens
+    if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
-            if g.delimiter() == Delimiter::Parenthesis {
-                break;
+            if g.delimiter() == Delimiter::Parenthesis && g.stream().is_empty() && i + 1 < tokens.len() {
+                return_type_tokens.push(tokens[i].clone());
+                i += 1;
             }
         }
-        if let TokenTree::Literal(_) = &tokens[i] {
-            break;
+    }
+    if return_type_tokens.is_empty() {
+        while i < tokens.len() {
+            if is_ident(&tokens[i], "where") { break; }
+            if let TokenTree::Group(g) = &tokens[i] {
+                if g.delimiter() == Delimiter::Parenthesis {
+                    break;
+                }
+            }
+            if is_literal_like(&tokens[i]) {
+                break;
+            }
+            return_type_tokens.push(tokens[i].clone());
+            i += 1;
         }
-        return_type_tokens.push(tokens[i].clone());
-        i += 1;
     }
     let return_type = if return_type_tokens.is_empty() {
         None
@@ -961,7 +997,7 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         Some(rt)
     };
 
-    // Check for `where` clause
+    // 8. Check for `where` clause
     let mut where_clause = None;
     if i < tokens.len() && is_ident(&tokens[i], "where") {
         i += 1;
@@ -969,16 +1005,54 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             if let TokenTree::Group(g) = &tokens[i] {
                 if g.delimiter() == Delimiter::Parenthesis {
                     let inner = g.stream();
-                    where_clause = Some(inner);
+                    where_clause = Some(inner.into());
                     i += 1;
                 }
             }
         }
     }
 
-    // Remaining tokens: body expressions (parenthesized groups) or bare expr
+    Ok(Some((FnSignature {
+        attrs: attrs_ts,
+        quals: quals_ts,
+        name: fn_name,
+        generics,
+        params,
+        return_type,
+        where_clause,
+        body_start: i,
+    }, None)))
+}
+
+/// Parse a lisp-style method/fn definition from tokens inside an impl/trait body.
+/// Input: the contents of a (...) group, e.g. `fn foo ((self &Self) (x i32)) RetType (body)`
+/// Also handles: `type Name = Type`
+/// Returns the Rust code as TokenStream2.
+fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+    if tokens.is_empty() {
+        return Ok(quote! {});
+    }
+
+    // Check for `type Name = Type`
+    if is_ident(&tokens[0], "type") {
+        let rest: TokenStream2 = tokens[1..].iter().cloned().collect();
+        return Ok(quote! { type #rest; });
+    }
+
+    // Use shared fn signature parser
+    let sig = match parse_fn_signature(tokens)? {
+        Some((sig, _)) => sig,
+        None => {
+            // Not a fn definition — pass through to lisp!
+            let all: TokenStream2 = tokens.iter().cloned().collect();
+            return Ok(quote! { ::lisp::lisp! { #all } });
+        }
+    };
+
+    // Parse body: remaining tokens are parenthesized groups or bare expressions
     let mut body_items = Vec::new();
     let mut has_body = false;
+    let mut i = sig.body_start;
     while i < tokens.len() {
         has_body = true;
         if let TokenTree::Group(g) = &tokens[i] {
@@ -989,24 +1063,27 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
                 continue;
             }
         }
-        // Bare expression token
         let tok = tokens[i].clone();
         body_items.push(quote! { #tok });
         i += 1;
     }
 
-    let gen = match &generics {
+    let gen = match &sig.generics {
         Some(g) => quote! { <#g> },
         None => quote! {},
     };
-    let ret = match &return_type {
+    let ret = match &sig.return_type {
         Some(r) => quote! { -> #r },
         None => quote! {},
     };
-    let where_cl = match &where_clause {
+    let where_cl = match &sig.where_clause {
         Some(w) => quote! { where #w },
         None => quote! {},
     };
+    let attrs_ts = &sig.attrs;
+    let quals_ts = &sig.quals;
+    let fn_name = &sig.name;
+    let params = &sig.params;
 
     if has_body {
         Ok(quote! {
@@ -1016,7 +1093,6 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             }
         })
     } else {
-        // Declaration only (no body) — emit semicolon
         Ok(quote! {
             #attrs_ts
             #quals_ts fn #fn_name #gen (#(#params),*) #ret #where_cl;
@@ -1624,67 +1700,80 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         None => quote! {},
     };
 
-    // 6. Parse fields - remaining tokens should be a parenthesized group
-    if i >= tokens.len() {
-        // Unit struct with generics
+    // 6. Parse fields — collect all remaining parenthesized groups as field groups.
+    // Supports: named fields ((f T) ...), pub fields (pub (f T) ...), mixed (pub ...)(...),
+    //           tuple structs (T1 T2 ...), and unit structs.
+    let mut field_groups = Vec::new();
+    while i < tokens.len() {
+        if let TokenTree::Group(g) = &tokens[i] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                field_groups.push(g.clone());
+            }
+        }
+        i += 1;
+    }
+
+    if field_groups.is_empty() {
+        // Unit struct
         return Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; });
     }
 
-    // Check if we have field groups
-    if let TokenTree::Group(g) = &tokens[i] {
-        if g.delimiter() == Delimiter::Parenthesis {
-            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+    // Determine if named fields or tuple struct by inspecting first group contents
+    let first_inner: Vec<TokenTree> = field_groups[0].stream().into_iter().collect();
+    if first_inner.is_empty() {
+        return Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; });
+    }
 
-            // Check if it looks like named fields: ((name Type) (name Type) ...)
-            if !inner.is_empty() {
-                if let TokenTree::Group(_) = &inner[0] {
-                    // Named struct fields
-                    let mut fields = Vec::new();
-                    // Check for `pub` keyword first in the group
-                    let mut is_pub_fields = false;
-                    let mut field_start = 0;
-                    if is_ident(&inner[0], "pub") {
-                        is_pub_fields = true;
-                        field_start = 1;
-                    }
+    // Check if this is a named-field struct: first meaningful element is a Group (field definition)
+    let is_named = {
+        let check_idx = if is_ident(&first_inner[0], "pub") { 1 } else { 0 };
+        check_idx < first_inner.len() && matches!(&first_inner[check_idx], TokenTree::Group(_))
+    };
 
-                    for tt in &inner[field_start..] {
-                        if let TokenTree::Group(fg) = tt {
-                            if fg.delimiter() == Delimiter::Parenthesis {
-                                let field_tokens: Vec<TokenTree> = fg.stream().into_iter().collect();
-                                if field_tokens.len() >= 2 {
-                                    if let TokenTree::Ident(field_name) = &field_tokens[0] {
-                                        let field_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
-                                        if is_pub_fields {
-                                            fields.push(quote! { pub #field_name: #field_type });
-                                        } else {
-                                            fields.push(quote! { #field_name: #field_type });
-                                        }
-                                    }
-                                }
+    if is_named {
+        // Named struct — process all field groups (supports mixed pub/private via multiple groups)
+        let mut all_fields = Vec::new();
+        for group in &field_groups {
+            let inner: Vec<TokenTree> = group.stream().into_iter().collect();
+            let mut field_start = 0;
+            let mut is_pub = false;
+            if !inner.is_empty() && is_ident(&inner[0], "pub") {
+                is_pub = true;
+                field_start = 1;
+            }
+            for tt in &inner[field_start..] {
+                if let TokenTree::Group(fg) = tt {
+                    if fg.delimiter() == Delimiter::Parenthesis {
+                        let field_tokens: Vec<TokenTree> = fg.stream().into_iter().collect();
+                        if field_tokens.len() >= 2 {
+                            let field_name = &field_tokens[0];
+                            let field_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
+                            if is_pub {
+                                all_fields.push(quote! { pub #field_name: #field_type });
+                            } else {
+                                all_fields.push(quote! { #field_name: #field_type });
                             }
                         }
                     }
-                    return Ok(quote! {
-                        #attrs_ts
-                        #vis_ts struct #struct_name #gen #where_cl {
-                            #(#fields),*
-                        }
-                    });
-                } else {
-                    // Tuple struct
-                    let types: TokenStream2 = inner.into_iter().collect();
-                    return Ok(quote! {
-                        #attrs_ts
-                        #vis_ts struct #struct_name #gen #where_cl ( #types );
-                    });
                 }
             }
         }
+        return Ok(quote! {
+            #attrs_ts
+            #vis_ts struct #struct_name #gen #where_cl {
+                #(#all_fields),*
+            }
+        });
+    } else {
+        // Tuple struct — first group contains space-separated types
+        let types_stream: TokenStream2 = first_inner.into_iter().collect();
+        let types = parse_type_list(types_stream)
+            .map_err(|e| syn::Error::new(e.span(), format!("lisp_struct! tuple fields: {}", e)))?;
+        return Ok(quote! {
+            #attrs_ts
+            #vis_ts struct #struct_name #gen #where_cl ( #(#types),* );
+        });
     }
-
-    // Fallback: unit struct
-    Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; })
 }
 
 // ─── lisp_fn! ───────────────────────────────────────────────────────────────
@@ -1699,176 +1788,17 @@ pub fn lisp_fn(input: TokenStream) -> TokenStream {
 }
 
 fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
-    let mut i = 0;
-
-    // 1. Collect attributes
-    let mut attrs = Vec::new();
-    while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i] {
-            if p.as_char() == '#' {
-                attrs.push(tokens[i].clone());
-                i += 1;
-                if i < tokens.len() {
-                    attrs.push(tokens[i].clone());
-                    i += 1;
-                }
-                continue;
-            }
+    // Use shared fn signature parser
+    let sig = match parse_fn_signature(tokens)? {
+        Some((sig, _)) => sig,
+        None => {
+            return Err(syn::Error::new(Span::call_site(), "lisp_fn!: expected fn keyword"));
         }
-        break;
-    }
-    let attrs_ts: TokenStream2 = attrs.into_iter().collect();
-
-    // 2. Collect qualifiers: pub, pub(crate), pub(super), const, unsafe, async, extern "C"
-    let mut qualifiers = Vec::new();
-    loop {
-        if i >= tokens.len() { break; }
-        match &tokens[i] {
-            TokenTree::Ident(id) if *id == "pub" => {
-                qualifiers.push(tokens[i].clone());
-                i += 1;
-                // Check for pub(...) — pub(crate), pub(super), pub(in path)
-                if i < tokens.len() {
-                    if let TokenTree::Group(g) = &tokens[i] {
-                        if g.delimiter() == Delimiter::Parenthesis {
-                            qualifiers.push(tokens[i].clone());
-                            i += 1;
-                        }
-                    }
-                }
-            }
-            TokenTree::Ident(id) if *id == "const" || *id == "unsafe" || *id == "async" => {
-                qualifiers.push(tokens[i].clone());
-                i += 1;
-            }
-            TokenTree::Ident(id) if *id == "extern" => {
-                qualifiers.push(tokens[i].clone());
-                i += 1;
-                // Consume ABI string if present
-                if i < tokens.len() {
-                    if let TokenTree::Literal(_) = &tokens[i] {
-                        qualifiers.push(tokens[i].clone());
-                        i += 1;
-                    }
-                }
-            }
-            _ => break,
-        }
-    }
-    let quals_ts: TokenStream2 = qualifiers.into_iter().collect();
-
-    // 3. Skip `fn` keyword
-    if i < tokens.len() && is_ident(&tokens[i], "fn") {
-        i += 1;
-    }
-
-    // 4. Consume function name
-    let fn_name = if i < tokens.len() {
-        if let TokenTree::Ident(id) = &tokens[i] {
-            let id = id.clone();
-            i += 1;
-            id
-        } else {
-            return Err(syn::Error::new(Span::call_site(), "lisp_fn!: expected function name"));
-        }
-    } else {
-        return Err(syn::Error::new(Span::call_site(), "lisp_fn!: expected function name"));
     };
 
-    // 5. Consume <...> generic params
-    let mut generics = None;
-    if i < tokens.len() && is_punct(&tokens[i], '<') {
-        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
-        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
-        generics = Some(angle_ts);
-        i = tokens.len() - rest.len();
-    }
-
-    // 6. Consume parameter list: a parenthesized group containing (name Type) pairs
-    // First parameter may be a self parameter: (self), (&self), (&mut self), (mut self), (self Type)
-    let mut params = Vec::new();
-    if i < tokens.len() {
-        if let TokenTree::Group(g) = &tokens[i] {
-            if g.delimiter() == Delimiter::Parenthesis {
-                let param_tokens: Vec<TokenTree> = g.stream().into_iter().collect();
-                let mut is_first_param = true;
-                for tt in &param_tokens {
-                    if let TokenTree::Group(pg) = tt {
-                        if pg.delimiter() == Delimiter::Parenthesis {
-                            let inner: Vec<TokenTree> = pg.stream().into_iter().collect();
-                            if is_first_param {
-                                if let Some(self_param) = parse_self_param(&inner) {
-                                    params.push(self_param);
-                                    is_first_param = false;
-                                    continue;
-                                }
-                            }
-                            if inner.len() >= 2 {
-                                let param_name = &inner[0];
-                                let param_type: TokenStream2 = inner[1..].iter().cloned().collect();
-                                params.push(quote! { #param_name: #param_type });
-                            }
-                            is_first_param = false;
-                        }
-                    }
-                }
-                i += 1;
-            }
-        }
-    }
-
-    // 7. Check for return type (next token that's not a group, not `where`, not a paren group for body)
-    let mut return_type = None;
-    // The return type is a single token tree that comes before the where clause and body groups
-    // It could be an ident like `T`, or a path, or missing
-    if i < tokens.len() {
-        // Check if this token could be a return type
-        match &tokens[i] {
-            TokenTree::Ident(id) if *id != "where" => {
-                // Could be a return type - peek ahead to see if next is a body group or `where`
-                // Collect return type tokens until we hit `where` or a parenthesized group that starts a body
-                let mut ret_tokens = Vec::new();
-                while i < tokens.len() {
-                    if is_ident(&tokens[i], "where") { break; }
-                    if let TokenTree::Group(g) = &tokens[i] {
-                        if g.delimiter() == Delimiter::Parenthesis {
-                            // This could be a body - check if it looks like a lisp expression
-                            break;
-                        }
-                    }
-                    ret_tokens.push(tokens[i].clone());
-                    i += 1;
-                }
-                if !ret_tokens.is_empty() {
-                    let ret_ts: TokenStream2 = ret_tokens.into_iter().collect();
-                    return_type = Some(ret_ts);
-                }
-            }
-            // Handle path-based return types like core::fmt::Result
-            TokenTree::Punct(_) => {
-                // Could be a complex return type path; skip for now
-            }
-            _ => {}
-        }
-    }
-
-    // 8. Check for `where` clause
-    let mut where_clause = None;
-    if i < tokens.len() && is_ident(&tokens[i], "where") {
-        i += 1;
-        if i < tokens.len() {
-            if let TokenTree::Group(g) = &tokens[i] {
-                if g.delimiter() == Delimiter::Parenthesis {
-                    let inner = g.stream();
-                    where_clause = Some(inner);
-                    i += 1;
-                }
-            }
-        }
-    }
-
-    // 9. Remaining parenthesized groups are body expressions
+    // Body: remaining parenthesized groups dispatch through ::lisp::lisp!
     let mut body_items = Vec::new();
+    let mut i = sig.body_start;
     while i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
             if g.delimiter() == Delimiter::Parenthesis {
@@ -1879,18 +1809,22 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         i += 1;
     }
 
-    let gen = match &generics {
+    let gen = match &sig.generics {
         Some(g) => quote! { <#g> },
         None => quote! {},
     };
-    let ret = match &return_type {
+    let ret = match &sig.return_type {
         Some(r) => quote! { -> #r },
         None => quote! {},
     };
-    let where_cl = match &where_clause {
+    let where_cl = match &sig.where_clause {
         Some(w) => quote! { where #w },
         None => quote! {},
     };
+    let attrs_ts = &sig.attrs;
+    let quals_ts = &sig.quals;
+    let fn_name = &sig.name;
+    let params = &sig.params;
 
     Ok(quote! {
         #attrs_ts

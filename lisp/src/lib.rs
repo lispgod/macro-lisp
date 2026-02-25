@@ -231,6 +231,12 @@ macro_rules! lisp {
     ( $(#[$m:meta])* pub ($($vis:tt)+) unsafe fn $($rest:tt)+ ) => (
         $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) unsafe fn $($rest)+ );
     );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) async fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) async fn $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) extern $abi:literal fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) extern $abi fn $($rest)+ );
+    );
     (pub ($($vis:tt)+) const $name:ident $typ:ty = $val:expr) => (
         pub($($vis)+) const $name: $typ = $val;
     );
@@ -253,170 +259,9 @@ macro_rules! lisp {
         }
     );
 
-    // pub struct (with generics, pub + private fields)
-    ( $(#[$m:meta])* pub struct $struct_name:ident < $($generic:ident),+ >
-        (pub $( ($name:ident $typ:ty) )* )
-        ( $( ($name2:ident $typ2:ty) )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name < $($generic),+ > {
-            $( pub $name: $typ),*
-            ,
-            $( $name2: $typ2),*
-        }
-    );
-    // pub struct (with generics, pub fields only)
-    ( $(#[$m:meta])* pub struct $struct_name:ident < $($generic:ident),+ >
-        (pub $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name < $($generic),+ > {
-            $( pub $name: $typ),*
-        }
-    );
-    // pub struct (with generics, private fields only)
-    ( $(#[$m:meta])* pub struct $struct_name:ident < $($generic:ident),+ >
-        ( $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name < $($generic),+ > {
-            $( $name: $typ ),*
-        }
-    );
-    // pub struct (no generics, pub + private fields)
-    ( $(#[$m:meta])* pub struct $struct_name:ident
-        (pub $( ($name:ident $typ:ty) )* )
-        ( $( ($name2:ident $typ2:ty) )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name {
-            $( pub $name: $typ),*
-            ,
-            $( $name2: $typ2),*
-        }
-    );
-    // pub struct (no generics, pub fields only)
-    ( $(#[$m:meta])* pub struct $struct_name:ident
-        (pub $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name {
-            $( pub $name: $typ),*
-        }
-    );
-    // pub struct (no generics, private fields only)
-    ( $(#[$m:meta])* pub struct $struct_name:ident
-        ( $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name {
-            $( $name: $typ ),*
-        }
-    );
-    // pub struct (unit)
-    ( $(#[$m:meta])* pub struct $struct_name:ident) => (
-        $(#[$m]);*
-        pub struct $struct_name;
-    );
-
-    // struct (with generics, pub + private fields)
-    ( $(#[$m:meta])* struct $struct_name:ident < $($generic:ident),+ >
-        (pub $( ($name:ident $typ:ty) )* )
-        ( $( ($name2:ident $typ2:ty) )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name < $($generic),+ > {
-            $( pub $name: $typ),*
-            ,
-            $( $name2: $typ2),*
-        }
-    );
-    // struct (with generics, pub fields only)
-    ( $(#[$m:meta])* struct $struct_name:ident < $($generic:ident),+ >
-        (pub $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name < $($generic),+ > {
-            $( pub $name: $typ),*
-        }
-    );
-    // struct (with generics, private fields only)
-    ( $(#[$m:meta])* struct $struct_name:ident < $($generic:ident),+ >
-        ( $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name < $($generic),+ > {
-            $( $name: $typ ),*
-        }
-    );
-    // struct (no generics, pub + private fields)
-    ( $(#[$m:meta])* struct $struct_name:ident
-        (pub $( ($name:ident $typ:ty) )* )
-        ( $( ($name2:ident $typ2:ty) )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name {
-            $( pub $name: $typ),*
-            ,
-            $( $name2: $typ2),*
-        }
-    );
-    // struct (no generics, pub fields only)
-    ( $(#[$m:meta])* struct $struct_name:ident
-        (pub $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name {
-            $( pub $name: $typ),*
-        }
-    );
-    // struct (no generics, private fields only)
-    ( $(#[$m:meta])* struct $struct_name:ident
-        ( $( ($name:ident $typ:ty) )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name {
-            $( $name: $typ ),*
-        }
-    );
-    // struct (unit)
-    ( $(#[$m:meta])* struct $struct_name:ident) => (
-        $(#[$m]);*
-        struct $struct_name;
-    );
-
-    // pub struct (tuple, with generics)
-    ( $(#[$m:meta])* pub struct $struct_name:ident < $($generic:ident),+ >
-        ( $( $typ:ty )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name < $($generic),+ > ( $($typ),* );
-    );
-    // pub struct (tuple, no generics)
-    ( $(#[$m:meta])* pub struct $struct_name:ident
-        ( $( $typ:ty )* )
-    ) => (
-        $(#[$m]);*
-        pub struct $struct_name ( $($typ),* );
-    );
-    // struct (tuple, with generics)
-    ( $(#[$m:meta])* struct $struct_name:ident < $($generic:ident),+ >
-        ( $( $typ:ty )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name < $($generic),+ > ( $($typ),* );
-    );
-    // struct (tuple, no generics)
-    ( $(#[$m:meta])* struct $struct_name:ident
-        ( $( $typ:ty )* )
-    ) => (
-        $(#[$m]);*
-        struct $struct_name ( $($typ),* );
-    );
-
-    // struct (complex generics with bounds/lifetimes — dispatched to proc macro)
-    ( $(#[$m:meta])* pub struct $name:ident < $($rest:tt)+ ) => ( $crate::lisp_struct!($(#[$m])* pub struct $name < $($rest)+); );
-    ( $(#[$m:meta])* struct $name:ident < $($rest:tt)+ ) => ( $crate::lisp_struct!($(#[$m])* struct $name < $($rest)+); );
+    // struct — dispatch all forms to proc macro
+    ( $(#[$m:meta])* pub struct $name:ident $($rest:tt)* ) => ( $crate::lisp_struct!($(#[$m])* pub struct $name $($rest)*); );
+    ( $(#[$m:meta])* struct $name:ident $($rest:tt)* ) => ( $crate::lisp_struct!($(#[$m])* struct $name $($rest)*); );
 
     // enum (brace passthrough — legacy)
     ( $(#[$m:meta])* pub enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* pub enum $name { $($body)* } );
@@ -438,43 +283,9 @@ macro_rules! lisp {
     (pub type $name:ident = $target:ty) => (pub type $name = $target;);
     (type $name:ident = $target:ty) => (type $name = $target;);
 
-    // const fn (MUST come before const variable to avoid :ident matching `fn` keyword)
-    // const fn & return
-    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        const fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // const fn & void
-    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        const fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // pub const fn & return
-    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub const fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // pub const fn & void
-    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub const fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
+    // const fn — dispatch to proc macro (MUST precede const variable rules)
+    ( $(#[$m:meta])* pub const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub const fn $sym $($rest)+); );
+    ( $(#[$m:meta])* const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* const fn $sym $($rest)+); );
 
     // const and static
     (pub const $name:ident $typ:ty = $val:expr) => (pub const $name: $typ = $val;);
@@ -626,45 +437,7 @@ macro_rules! lisp {
          }
     );
 
-    // ── Functions & Closures ─────────────────────────────────
-
-    // pub unsafe fn & return
-    ( $(#[$m:meta])* pub unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub unsafe fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // pub unsafe fn & void
-    ( $(#[$m:meta])* pub unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub unsafe fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-
-    // pub extern fn & return
-    ( $(#[$m:meta])* pub extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub extern $abi fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // pub extern fn & void
-    ( $(#[$m:meta])* pub extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub extern $abi fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
+    // ── Closures ─────────────────────────────────────────────
 
     // closure (fn move) — untyped params
     (fn move ( $( ( $name:ident ) )+ )
@@ -686,115 +459,24 @@ macro_rules! lisp {
         $( ( $($e:tt)* ))*
     ) => (| $($name : $typ),* |{ $( $crate::lisp!( $($e)* ) );* });
 
-    // async fn & return
-    ( $(#[$m:meta])* async fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        async fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // async fn & void
-    ( $(#[$m:meta])* async fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        async fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-
-    // pub fn & return
-    ( $(#[$m:meta])* pub fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // pub fn & void
-    ( $(#[$m:meta])* pub fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        pub fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-
-    // fn & return
-    ( $(#[$m:meta])* fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        fn $sym ( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // fn & void
-    ( $(#[$m:meta])* fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-
-    // fn with generics (dispatched to proc macro)
-    ( $(#[$m:meta])* pub unsafe fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub unsafe fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* pub const fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub const fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* pub async fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub async fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* pub fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* unsafe fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* unsafe fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* const fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* const fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* async fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* async fn $sym < $($rest)+); );
-    ( $(#[$m:meta])* fn $sym:ident < $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* fn $sym < $($rest)+); );
+    // ── Named Functions (unified dispatch to proc macro) ─────
+    // All modifier × return-type combinations collapse into one dispatch rule per modifier set.
+    // Closures above are matched first since they start with `fn (` not `fn $name`.
+    ( $(#[$m:meta])* pub unsafe fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub unsafe fn $sym $($rest)+); );
+    ( $(#[$m:meta])* pub async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub async fn $sym $($rest)+); );
+    ( $(#[$m:meta])* pub extern $abi:literal fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub extern $abi fn $sym $($rest)+); );
+    ( $(#[$m:meta])* pub fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub fn $sym $($rest)+); );
+    ( $(#[$m:meta])* unsafe fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* unsafe fn $sym $($rest)+); );
+    ( $(#[$m:meta])* async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* async fn $sym $($rest)+); );
+    ( $(#[$m:meta])* extern $abi:literal fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* extern $abi fn $sym $($rest)+); );
+    ( $(#[$m:meta])* fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* fn $sym $($rest)+); );
 
     // ── Return ───────────────────────────────────────────────
     (return ( $($e:tt)+ )) => (return $crate::lisp!($($e)+));
     (return $e:tt) => (return $crate::lisp_arg!($e));
     (return) => (return);
 
-    // ── Unsafe ───────────────────────────────────────────────
-    // unsafe fn & return
-    ( $(#[$m:meta])* unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        unsafe fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // unsafe fn & void
-    ( $(#[$m:meta])* unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        unsafe fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // extern fn & return
-    ( $(#[$m:meta])* extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        extern $abi fn $sym( $($name : $typ),* ) -> $return_type {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
-    // extern fn & void
-    ( $(#[$m:meta])* extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (
-        $(#[$m]);*
-        extern $abi fn $sym( $($name : $typ),* ) {
-            $( $crate::lisp!( $($e)* ) );*
-        }
-    );
+    // ── Unsafe Block ─────────────────────────────────────────
     (unsafe $( ( $($e:tt)* ) )* ) => (unsafe { $( $crate::lisp!($($e)*) );* });
 
     // ── Await ────────────────────────────────────────────────
