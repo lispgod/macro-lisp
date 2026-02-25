@@ -3,6 +3,24 @@ use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Delimiter, TokenTree, Spacing, Punct, Span};
 use quote::quote;
 
+// ─── Helper: parse a space-separated list of types from a token stream ───
+// In the lisp DSL, tuple struct fields are written as `(Type1 Type2 ...)` without commas.
+// This uses syn to greedily parse each complete type.
+fn parse_type_list(stream: TokenStream2) -> syn::Result<Vec<syn::Type>> {
+    struct TypeList(Vec<syn::Type>);
+    impl syn::parse::Parse for TypeList {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            let mut types = Vec::new();
+            while !input.is_empty() {
+                types.push(input.parse::<syn::Type>()?);
+            }
+            Ok(TypeList(types))
+        }
+    }
+    let list = syn::parse2::<TypeList>(stream)?;
+    Ok(list.0)
+}
+
 // ─── Helper: check if a token tree is a specific punctuation character ───
 fn is_punct(tt: &TokenTree, ch: char) -> bool {
     matches!(tt, TokenTree::Punct(p) if p.as_char() == ch)
@@ -1646,67 +1664,80 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         None => quote! {},
     };
 
-    // 6. Parse fields - remaining tokens should be a parenthesized group
-    if i >= tokens.len() {
-        // Unit struct with generics
+    // 6. Parse fields — collect all remaining parenthesized groups as field groups.
+    // Supports: named fields ((f T) ...), pub fields (pub (f T) ...), mixed (pub ...)(...),
+    //           tuple structs (T1 T2 ...), and unit structs.
+    let mut field_groups = Vec::new();
+    while i < tokens.len() {
+        if let TokenTree::Group(g) = &tokens[i] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                field_groups.push(g.clone());
+            }
+        }
+        i += 1;
+    }
+
+    if field_groups.is_empty() {
+        // Unit struct
         return Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; });
     }
 
-    // Check if we have field groups
-    if let TokenTree::Group(g) = &tokens[i] {
-        if g.delimiter() == Delimiter::Parenthesis {
-            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+    // Determine if named fields or tuple struct by inspecting first group contents
+    let first_inner: Vec<TokenTree> = field_groups[0].stream().into_iter().collect();
+    if first_inner.is_empty() {
+        return Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; });
+    }
 
-            // Check if it looks like named fields: ((name Type) (name Type) ...)
-            if !inner.is_empty() {
-                if let TokenTree::Group(_) = &inner[0] {
-                    // Named struct fields
-                    let mut fields = Vec::new();
-                    // Check for `pub` keyword first in the group
-                    let mut is_pub_fields = false;
-                    let mut field_start = 0;
-                    if is_ident(&inner[0], "pub") {
-                        is_pub_fields = true;
-                        field_start = 1;
-                    }
+    // Check if this is a named-field struct: first meaningful element is a Group (field definition)
+    let is_named = {
+        let check_idx = if is_ident(&first_inner[0], "pub") { 1 } else { 0 };
+        check_idx < first_inner.len() && matches!(&first_inner[check_idx], TokenTree::Group(_))
+    };
 
-                    for tt in &inner[field_start..] {
-                        if let TokenTree::Group(fg) = tt {
-                            if fg.delimiter() == Delimiter::Parenthesis {
-                                let field_tokens: Vec<TokenTree> = fg.stream().into_iter().collect();
-                                if field_tokens.len() >= 2 {
-                                    if let TokenTree::Ident(field_name) = &field_tokens[0] {
-                                        let field_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
-                                        if is_pub_fields {
-                                            fields.push(quote! { pub #field_name: #field_type });
-                                        } else {
-                                            fields.push(quote! { #field_name: #field_type });
-                                        }
-                                    }
-                                }
+    if is_named {
+        // Named struct — process all field groups (supports mixed pub/private via multiple groups)
+        let mut all_fields = Vec::new();
+        for group in &field_groups {
+            let inner: Vec<TokenTree> = group.stream().into_iter().collect();
+            let mut field_start = 0;
+            let mut is_pub = false;
+            if !inner.is_empty() && is_ident(&inner[0], "pub") {
+                is_pub = true;
+                field_start = 1;
+            }
+            for tt in &inner[field_start..] {
+                if let TokenTree::Group(fg) = tt {
+                    if fg.delimiter() == Delimiter::Parenthesis {
+                        let field_tokens: Vec<TokenTree> = fg.stream().into_iter().collect();
+                        if field_tokens.len() >= 2 {
+                            let field_name = &field_tokens[0];
+                            let field_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
+                            if is_pub {
+                                all_fields.push(quote! { pub #field_name: #field_type });
+                            } else {
+                                all_fields.push(quote! { #field_name: #field_type });
                             }
                         }
                     }
-                    return Ok(quote! {
-                        #attrs_ts
-                        #vis_ts struct #struct_name #gen #where_cl {
-                            #(#fields),*
-                        }
-                    });
-                } else {
-                    // Tuple struct
-                    let types: TokenStream2 = inner.into_iter().collect();
-                    return Ok(quote! {
-                        #attrs_ts
-                        #vis_ts struct #struct_name #gen #where_cl ( #types );
-                    });
                 }
             }
         }
+        return Ok(quote! {
+            #attrs_ts
+            #vis_ts struct #struct_name #gen #where_cl {
+                #(#all_fields),*
+            }
+        });
+    } else {
+        // Tuple struct — first group contains space-separated types
+        let types_stream: TokenStream2 = first_inner.into_iter().collect();
+        let types = parse_type_list(types_stream)
+            .map_err(|e| syn::Error::new(e.span(), format!("lisp_struct! tuple fields: {}", e)))?;
+        return Ok(quote! {
+            #attrs_ts
+            #vis_ts struct #struct_name #gen #where_cl ( #(#types),* );
+        });
     }
-
-    // Fallback: unit struct
-    Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; })
 }
 
 // ─── lisp_fn! ───────────────────────────────────────────────────────────────
