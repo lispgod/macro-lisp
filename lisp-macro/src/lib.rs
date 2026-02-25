@@ -1834,3 +1834,56 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         }
     })
 }
+
+// ─── lisp_let! ──────────────────────────────────────────────────────────────
+//
+// Usage: lisp_let!(pattern_tokens... value_token)
+//
+// Handles pattern destructuring in let bindings that macro_rules! can't match.
+// The last token tree is the value (possibly a parenthesized group for lisp recursion).
+// Everything before the last token is the pattern (emitted verbatim).
+#[proc_macro]
+pub fn lisp_let(input: TokenStream) -> TokenStream {
+    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    if tokens.len() < 2 {
+        return syn::Error::new(Span::call_site(), "lisp_let! requires a pattern and a value")
+            .to_compile_error()
+            .into();
+    }
+
+    // Check for `mut` keyword at the start
+    let mut i = 0;
+    let is_mut = is_ident(&tokens[i], "mut");
+    if is_mut { i += 1; }
+
+    if tokens.len() - i < 2 {
+        return syn::Error::new(Span::call_site(), "lisp_let! requires a pattern and a value")
+            .to_compile_error()
+            .into();
+    }
+
+    // Pattern is everything from i to len-1, value is last token
+    let pattern_tokens = &tokens[i..tokens.len() - 1];
+    let value_token = &tokens[tokens.len() - 1];
+
+    let pattern_ts: TokenStream2 = pattern_tokens.iter().cloned().collect();
+
+    // If value is a parenthesized group, recurse through lisp!
+    let val_ts = match value_token {
+        TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis => {
+            let inner = g.stream();
+            quote! { ::lisp::lisp!(#inner) }
+        }
+        other => {
+            let other = other.clone();
+            quote! { #other }
+        }
+    };
+
+    let mut_kw = if is_mut { quote! { mut } } else { quote! {} };
+
+    let result = quote! {
+        let #mut_kw #pattern_ts = #val_ts;
+    };
+    result.into()
+}

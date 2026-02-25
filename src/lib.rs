@@ -12,3 +12,4 @@ pub use lisp::lisp_trait;
 pub use lisp::lisp_enum;
 pub use lisp::lisp_struct;
 pub use lisp::lisp_fn;
+pub use lisp::lisp_let;

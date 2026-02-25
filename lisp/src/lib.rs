@@ -200,7 +200,7 @@
 //! | `(func args...)` | `func(args...)` |
 
 // Re-export proc macros so users see one unified crate.
-pub use lisp_macro::{lisp_assign, lisp_impl, lisp_trait, lisp_enum, lisp_struct, lisp_fn};
+pub use lisp_macro::{lisp_assign, lisp_impl, lisp_trait, lisp_enum, lisp_struct, lisp_fn, lisp_let};
 
 #[macro_export]
 macro_rules! lisp {
@@ -470,6 +470,8 @@ macro_rules! lisp {
     // let (immutable)
     (let ($var:ident $typ:ty) ( $($e:tt)+ ) ) => (let $var: $typ = $crate::lisp!( $($e)+););
     (let ($var:ident $typ:ty) $e:expr) => (let $var: $typ = $e;);
+    // let struct destructuring: (let Name { fields... } value)
+    (let $name:ident { $($pat:tt)* } $e:tt) => (let $name { $($pat)* } = $crate::lisp_arg!($e););
     (let $var:ident ( $($e:tt)+ ) ) => (let $var = $crate::lisp!( $($e)+ ););
     (let $var:ident $e:expr) => (let $var = $e;);
 
@@ -480,6 +482,9 @@ macro_rules! lisp {
         $(let mut $var = $crate::lisp_arg!($e);)*
         $( $crate::lisp!( $($e2)* ) );*
     });
+
+    // let (pattern destructuring — fallback to proc macro)
+    (let $($tokens:tt)+) => ($crate::lisp_let!($($tokens)+));
 
     // ── Assignment ───────────────────────────────────────────
 
