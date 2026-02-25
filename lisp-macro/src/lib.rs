@@ -3,6 +3,25 @@ use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Delimiter, TokenTree, Spacing, Punct, Span};
 use quote::quote;
 
+// ─── Helper: flatten invisible delimiter groups ─────────────────────────────
+// macro_rules! wraps captured fragments ($vis:vis, $expr:expr, etc.) in
+// Group { delimiter: None } ("invisible groups"). When these are forwarded
+// to a proc macro, the proc macro sees the wrapper instead of the raw tokens.
+// This helper flattens top-level invisible groups so parsing sees raw tokens.
+fn flatten_none_delim(tokens: Vec<TokenTree>) -> Vec<TokenTree> {
+    let mut result = Vec::new();
+    for tt in tokens {
+        if let TokenTree::Group(ref g) = tt {
+            if g.delimiter() == Delimiter::None {
+                result.extend(flatten_none_delim(g.stream().into_iter().collect()));
+                continue;
+            }
+        }
+        result.push(tt);
+    }
+    result
+}
+
 // ─── Helper: parse a space-separated list of types from a token stream ───
 // In the lisp DSL, tuple struct fields are written as `(Type1 Type2 ...)` without commas.
 // This uses syn to greedily parse each complete type.
@@ -97,6 +116,102 @@ fn parse_visibility(tokens: &[TokenTree]) -> (TokenStream2, usize) {
     (quote! { pub }, 1)
 }
 
+// ─── Shared parsing helpers ──────────────────────────────────────────────────
+// These extract common patterns used across parse_struct, parse_enum,
+// parse_trait, parse_impl, and parse_fn_signature, eliminating duplication.
+
+/// Collect `#[...]` attribute tokens, advancing `*i`.
+fn parse_attributes(tokens: &[TokenTree], i: &mut usize) -> TokenStream2 {
+    let mut attrs = Vec::new();
+    while *i < tokens.len() {
+        if let TokenTree::Punct(p) = &tokens[*i] {
+            if p.as_char() == '#' {
+                attrs.push(tokens[*i].clone());
+                *i += 1;
+                if *i < tokens.len() {
+                    attrs.push(tokens[*i].clone());
+                    *i += 1;
+                }
+                continue;
+            }
+        }
+        break;
+    }
+    attrs.into_iter().collect()
+}
+
+/// Parse `<...>` generic parameters, advancing `*i`. Returns None if no `<` found.
+fn parse_generics_params(tokens: &[TokenTree], i: &mut usize) -> Option<TokenStream2> {
+    if *i < tokens.len() && is_punct(&tokens[*i], '<') {
+        let (angle_contents, rest) = consume_angle_brackets(&tokens[*i..]);
+        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
+        *i = tokens.len() - rest.len();
+        Some(angle_ts)
+    } else {
+        None
+    }
+}
+
+/// Parse `where (clause)`, advancing `*i`. Returns None if no `where` found.
+fn parse_where_clause(tokens: &[TokenTree], i: &mut usize) -> Option<TokenStream2> {
+    if *i < tokens.len() && is_ident(&tokens[*i], "where") {
+        *i += 1;
+        if *i < tokens.len() {
+            if let TokenTree::Group(g) = &tokens[*i] {
+                if g.delimiter() == Delimiter::Parenthesis {
+                    *i += 1;
+                    return Some(g.stream().into());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Emit `<G>` from an optional generics token stream.
+fn emit_generics(gen: &Option<TokenStream2>) -> TokenStream2 {
+    match gen {
+        Some(g) => quote! { <#g> },
+        None => quote! {},
+    }
+}
+
+/// Emit `-> R` from an optional return type token stream.
+fn emit_return_type(ret: &Option<TokenStream2>) -> TokenStream2 {
+    match ret {
+        Some(r) => quote! { -> #r },
+        None => quote! {},
+    }
+}
+
+/// Emit `where W` from an optional where clause token stream.
+fn emit_where_clause(wc: &Option<TokenStream2>) -> TokenStream2 {
+    match wc {
+        Some(w) => quote! { where #w },
+        None => quote! {},
+    }
+}
+
+/// Collect body items from remaining tokens (parenthesized groups → eval_lisp_expr, bare → quoted).
+fn parse_body_items(tokens: &[TokenTree], start: usize) -> Vec<TokenStream2> {
+    let mut items = Vec::new();
+    let mut i = start;
+    while i < tokens.len() {
+        if let TokenTree::Group(g) = &tokens[i] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                items.push(eval_lisp_expr(&inner));
+                i += 1;
+                continue;
+            }
+        }
+        let tok = tokens[i].clone();
+        items.push(quote! { #tok });
+        i += 1;
+    }
+    items
+}
+
 // ─── Helper: consume balanced angle brackets from tokens, returning (angle_contents, rest) ───
 // Expects tokens[0] to be '<'
 fn consume_angle_brackets(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
@@ -172,6 +287,115 @@ fn consume_type_path(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
         }
     }
     (result, &tokens[i..])
+}
+
+// ─── Operator dispatch helpers for eval_lisp_expr ────────────────────────────
+// These eliminate the repetitive per-operator match arms in the Punct branch.
+
+/// Evaluate a binary operation: `(op a b)` → `a op b`
+fn eval_binary_op(operands: &[TokenTree], op: TokenStream2) -> TokenStream2 {
+    let a = eval_lisp_arg(&operands[0..1]);
+    let b = eval_lisp_arg(&operands[1..2]);
+    quote! { #a #op #b }
+}
+
+/// Evaluate a variadic arithmetic operation: `(op a b c ...)` → `a op b op c op ...`
+fn eval_variadic_op(operands: &[TokenTree], op_char: char) -> TokenStream2 {
+    let op = Punct::new(op_char, Spacing::Alone);
+    let a = eval_lisp_arg(&operands[0..1]);
+    let b = eval_lisp_arg(&operands[1..2]);
+    let mut result = quote! { #a #op #b };
+    for t in &operands[2..] {
+        let c = eval_lisp_arg(std::slice::from_ref(t));
+        let op = Punct::new(op_char, Spacing::Alone);
+        result = quote! { #result #op #c };
+    }
+    result
+}
+
+/// Evaluate a compound assignment: `(op= lhs... rhs)` → `lhs op= rhs;`
+fn eval_compound_assign(rest: &[TokenTree], op_char: char) -> TokenStream2 {
+    let lhs: TokenStream2 = rest[..rest.len()-1].iter().cloned().collect();
+    let rhs = eval_lisp_arg(&rest[rest.len()-1..]);
+    let op = Punct::new(op_char, Spacing::Joint);
+    quote! { #lhs #op = #rhs; }
+}
+
+/// Dispatch punctuation-based expressions in eval_lisp_expr.
+/// Returns Some(result) if handled, None otherwise.
+fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
+    let TokenTree::Punct(p) = &tokens[0] else { return None };
+    let ch = p.as_char();
+
+    // ── Two-character operators (check second punct token first) ──
+    if tokens.len() >= 2 {
+        if let TokenTree::Punct(p2) = &tokens[1] {
+            let ch2 = p2.as_char();
+            match (ch, ch2) {
+                // Comparison operators: operands start at index 2
+                ('=', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { == })),
+                ('!', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { != })),
+                ('>', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { >= })),
+                ('<', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { <= })),
+                // Logical operators: operands start at index 2
+                ('&', '&') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { && })),
+                ('|', '|') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { || })),
+                // Compound assignment operators: (op= lhs... rhs)
+                ('+', '=') | ('-', '=') | ('*', '=') | ('/', '=') | ('%', '=')
+                | ('&', '=') | ('|', '=') | ('^', '=') if tokens.len() >= 4 => {
+                    return Some(eval_compound_assign(&tokens[2..], ch));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // ── Single-character operators ──
+    match ch {
+        // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...), (% a b)
+        '+' | '-' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
+        '*' | '/' | '%' if tokens.len() == 3 => {
+            let a = eval_lisp_arg(&tokens[1..2]);
+            let b = eval_lisp_arg(&tokens[2..3]);
+            let op = Punct::new(ch, Spacing::Alone);
+            return Some(quote! { #a #op #b });
+        }
+        // Simple comparison: (> a b), (< a b)
+        '>' | '<' if tokens.len() == 3 => {
+            let a = eval_lisp_arg(&tokens[1..2]);
+            let b = eval_lisp_arg(&tokens[2..3]);
+            let op = Punct::new(ch, Spacing::Alone);
+            return Some(quote! { #a #op #b });
+        }
+        // Simple assignment: (= lhs... rhs)
+        '=' if tokens.len() >= 3 => {
+            let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
+            let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+            return Some(quote! { #lhs = #rhs; });
+        }
+        // Unary not: (! x)
+        '!' if tokens.len() == 2 => {
+            let e = eval_lisp_arg(&tokens[1..2]);
+            return Some(quote! { ! #e });
+        }
+        // Field access: (. obj field1 field2 ...)
+        '.' if tokens.len() >= 3 => {
+            let obj = eval_lisp_arg(&tokens[1..2]);
+            let fields_ts: TokenStream2 = tokens[2..].iter().map(|f| {
+                let f = f.clone();
+                quote! { .#f }
+            }).collect();
+            return Some(quote! { #obj #fields_ts });
+        }
+        // Try operator: (? x)
+        '?' if tokens.len() == 2 => {
+            let e = eval_lisp_arg(&tokens[1..2]);
+            return Some(quote! { #e? });
+        }
+        _ => {}
+    }
+
+    None
 }
 
 /// Evaluate a lisp expression (the contents of a parenthesized group) into Rust code.
@@ -453,178 +677,9 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                 _ => {}
             }
         }
-        TokenTree::Punct(p) => {
-            let ch = p.as_char();
-            match ch {
-                '+' => {
-                    // Check for +=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs += #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a + #b };
-                    } else if tokens.len() > 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        let mut result = quote! { #a + #b };
-                        for t in &tokens[3..] {
-                            let c = eval_lisp_arg(std::slice::from_ref(t));
-                            result = quote! { #result + #c };
-                        }
-                        return result;
-                    }
-                }
-                '-' => {
-                    // Check for -=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs -= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a - #b };
-                    } else if tokens.len() > 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        let mut result = quote! { #a - #b };
-                        for t in &tokens[3..] {
-                            let c = eval_lisp_arg(std::slice::from_ref(t));
-                            result = quote! { #result - #c };
-                        }
-                        return result;
-                    }
-                }
-                '*' => {
-                    // Check for *=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs *= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a * #b };
-                    }
-                }
-                '/' => {
-                    // Check for /=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs /= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a / #b };
-                    }
-                }
-                '%' => {
-                    // Check for %=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs %= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a % #b };
-                    }
-                }
-                '>' => {
-                    // Check for >= or >>
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a >= #b };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a > #b };
-                    }
-                }
-                '<' => {
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a <= #b };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a < #b };
-                    }
-                }
-                '=' => {
-                    if tokens.len() >= 3 {
-                        if is_punct(&tokens[1], '=') {
-                            // ==
-                            let a = eval_lisp_arg(&tokens[2..3]);
-                            let b = eval_lisp_arg(&tokens[3..4]);
-                            return quote! { #a == #b };
-                        }
-                        // assignment
-                        let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs = #rhs; };
-                    }
-                }
-                '!' => {
-                    if tokens.len() >= 2 && is_punct(&tokens[1], '=') {
-                        // !=
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a != #b };
-                    }
-                    if tokens.len() == 2 {
-                        let e = eval_lisp_arg(&tokens[1..2]);
-                        return quote! { ! #e };
-                    }
-                }
-                '.' => {
-                    // (. obj field1 field2 ...)
-                    if tokens.len() >= 3 {
-                        let obj = eval_lisp_arg(&tokens[1..2]);
-                        let fields: Vec<&TokenTree> = tokens[2..].iter().collect();
-                        let fields_ts: TokenStream2 = fields.iter().map(|f| {
-                            let f = (*f).clone();
-                            quote! { .#f }
-                        }).collect();
-                        return quote! { #obj #fields_ts };
-                    }
-                }
-                '&' => {
-                    if tokens.len() >= 2 && is_punct(&tokens[1], '&') {
-                        // &&
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a && #b };
-                    }
-                }
-                '|' => {
-                    if tokens.len() >= 2 && is_punct(&tokens[1], '|') {
-                        // ||
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a || #b };
-                    }
-                }
-                '?' => {
-                    if tokens.len() == 2 {
-                        let e = eval_lisp_arg(&tokens[1..2]);
-                        return quote! { #e? };
-                    }
-                }
-                _ => {}
+        TokenTree::Punct(_) => {
+            if let Some(result) = eval_punct_expr(tokens) {
+                return result;
             }
         }
         _ => {}
@@ -852,22 +907,7 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
     let mut i = 0;
 
     // 1. Collect attributes
-    let mut attrs = Vec::new();
-    while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i] {
-            if p.as_char() == '#' {
-                attrs.push(tokens[i].clone());
-                i += 1;
-                if i < tokens.len() {
-                    attrs.push(tokens[i].clone());
-                    i += 1;
-                }
-                continue;
-            }
-        }
-        break;
-    }
-    let attrs_ts: TokenStream2 = attrs.into_iter().collect();
+    let attrs_ts = parse_attributes(tokens, &mut i);
 
     // 2. Collect qualifiers: pub, pub(crate), pub(super), const, unsafe, async, extern "C"
     let mut qualifiers = Vec::new();
@@ -924,13 +964,7 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
     };
 
     // 5. Check for <...> generic params
-    let mut generics = None;
-    if i < tokens.len() && is_punct(&tokens[i], '<') {
-        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
-        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
-        generics = Some(angle_ts);
-        i = tokens.len() - rest.len();
-    }
+    let generics = parse_generics_params(tokens, &mut i);
 
     // 6. Parse parameter list: a parenthesized group containing (name Type) pairs
     let mut params = Vec::new();
@@ -998,19 +1032,7 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
     };
 
     // 8. Check for `where` clause
-    let mut where_clause = None;
-    if i < tokens.len() && is_ident(&tokens[i], "where") {
-        i += 1;
-        if i < tokens.len() {
-            if let TokenTree::Group(g) = &tokens[i] {
-                if g.delimiter() == Delimiter::Parenthesis {
-                    let inner = g.stream();
-                    where_clause = Some(inner.into());
-                    i += 1;
-                }
-            }
-        }
-    }
+    let where_clause = parse_where_clause(tokens, &mut i);
 
     Ok(Some((FnSignature {
         attrs: attrs_ts,
@@ -1050,36 +1072,12 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     };
 
     // Parse body: remaining tokens are parenthesized groups or bare expressions
-    let mut body_items = Vec::new();
-    let mut has_body = false;
-    let mut i = sig.body_start;
-    while i < tokens.len() {
-        has_body = true;
-        if let TokenTree::Group(g) = &tokens[i] {
-            if g.delimiter() == Delimiter::Parenthesis {
-                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
-                body_items.push(eval_lisp_expr(&inner));
-                i += 1;
-                continue;
-            }
-        }
-        let tok = tokens[i].clone();
-        body_items.push(quote! { #tok });
-        i += 1;
-    }
+    let body_items = parse_body_items(tokens, sig.body_start);
+    let has_body = sig.body_start < tokens.len();
 
-    let gen = match &sig.generics {
-        Some(g) => quote! { <#g> },
-        None => quote! {},
-    };
-    let ret = match &sig.return_type {
-        Some(r) => quote! { -> #r },
-        None => quote! {},
-    };
-    let where_cl = match &sig.where_clause {
-        Some(w) => quote! { where #w },
-        None => quote! {},
-    };
+    let gen = emit_generics(&sig.generics);
+    let ret = emit_return_type(&sig.return_type);
+    let where_cl = emit_where_clause(&sig.where_clause);
     let attrs_ts = &sig.attrs;
     let quals_ts = &sig.quals;
     let fn_name = &sig.name;
@@ -1109,7 +1107,7 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // Everything between the operator and the last token is the LHS (emitted verbatim).
 #[proc_macro]
 pub fn lisp_assign(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     if tokens.len() < 3 {
         return syn::Error::new(Span::call_site(), "lisp_assign! requires at least an operator, LHS, and RHS")
             .to_compile_error()
@@ -1246,7 +1244,7 @@ fn parse_assign_op(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
 //        lisp_impl!(Type (method)...)
 #[proc_macro]
 pub fn lisp_impl(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_impl(&tokens);
     match result {
         Ok(ts) => ts.into(),
@@ -1258,13 +1256,7 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     let mut i = 0;
 
     // 1. Check for <...> generic params
-    let mut generics = None;
-    if i < tokens.len() && is_punct(&tokens[i], '<') {
-        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
-        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
-        generics = Some(angle_ts);
-        i = tokens.len() - rest.len();
-    }
+    let generics = parse_generics_params(tokens, &mut i);
 
     // 2. Consume the first type/trait path
     let (first_path, rest) = consume_type_path(&tokens[i..]);
@@ -1289,26 +1281,7 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     };
 
     // 4. Check for `where` clause
-    let mut where_clause = None;
-    if i < tokens.len() && is_ident(&tokens[i], "where") {
-        i += 1; // skip `where`
-        // Consume tokens until we hit a parenthesized group (which starts method bodies)
-        let mut where_tokens = Vec::new();
-        // The where clause may be in a parenthesized group
-        if i < tokens.len() {
-            if let TokenTree::Group(g) = &tokens[i] {
-                if g.delimiter() == Delimiter::Parenthesis {
-                    // where (T: Clone + Debug)
-                    where_tokens.extend(g.stream());
-                    i += 1;
-                }
-            }
-        }
-        if !where_tokens.is_empty() {
-            let where_ts: TokenStream2 = where_tokens.into_iter().collect();
-            where_clause = Some(where_ts);
-        }
-    }
+    let where_clause = parse_where_clause(tokens, &mut i);
 
     // 5. Remaining tokens should be parenthesized groups containing method/type definitions
     let mut body_items = Vec::new();
@@ -1324,14 +1297,8 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
 
     // Build the impl block
-    let gen = match &generics {
-        Some(g) => quote! { <#g> },
-        None => quote! {},
-    };
-    let where_cl = match &where_clause {
-        Some(w) => quote! { where #w },
-        None => quote! {},
-    };
+    let gen = emit_generics(&generics);
+    let where_cl = emit_where_clause(&where_clause);
     let trait_for = match &trait_path {
         Some(t) => quote! { #t for },
         None => quote! {},
@@ -1347,7 +1314,7 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // ─── lisp_trait! ────────────────────────────────────────────────────────────
 #[proc_macro]
 pub fn lisp_trait(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_trait(&tokens);
     match result {
         Ok(ts) => ts.into(),
@@ -1376,13 +1343,7 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     };
 
     // 3. Check for <...> generic params
-    let mut generics = None;
-    if i < tokens.len() && is_punct(&tokens[i], '<') {
-        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
-        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
-        generics = Some(angle_ts);
-        i = tokens.len() - rest.len();
-    }
+    let generics = parse_generics_params(tokens, &mut i);
 
     // 4. Check for `:` followed by supertraits
     let mut supertraits = None;
@@ -1409,19 +1370,7 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     }
 
     // 5. Check for `where` clause
-    let mut where_clause = None;
-    if i < tokens.len() && is_ident(&tokens[i], "where") {
-        i += 1; // skip `where`
-        if i < tokens.len() {
-            if let TokenTree::Group(g) = &tokens[i] {
-                if g.delimiter() == Delimiter::Parenthesis {
-                    let inner = g.stream();
-                    where_clause = Some(inner);
-                    i += 1;
-                }
-            }
-        }
-    }
+    let where_clause = parse_where_clause(tokens, &mut i);
 
     // 6. Remaining tokens are method/type declarations in (...) groups
     let mut body_items = Vec::new();
@@ -1436,18 +1385,12 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         i += 1;
     }
 
-    let gen = match &generics {
-        Some(g) => quote! { <#g> },
-        None => quote! {},
-    };
+    let gen = emit_generics(&generics);
     let super_cl = match &supertraits {
         Some(s) => quote! { : #s },
         None => quote! {},
     };
-    let where_cl = match &where_clause {
-        Some(w) => quote! { where #w },
-        None => quote! {},
-    };
+    let where_cl = emit_where_clause(&where_clause);
 
     Ok(quote! {
         #vis_ts trait #trait_name #gen #super_cl #where_cl {
@@ -1459,7 +1402,7 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // ─── lisp_enum! ─────────────────────────────────────────────────────────────
 #[proc_macro]
 pub fn lisp_enum(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_enum(&tokens);
     match result {
         Ok(ts) => ts.into(),
@@ -1471,22 +1414,7 @@ fn parse_enum(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     let mut i = 0;
 
     // 1. Check for attributes and pub
-    let mut attrs = Vec::new();
-    while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i] {
-            if p.as_char() == '#' {
-                attrs.push(tokens[i].clone());
-                i += 1;
-                if i < tokens.len() {
-                    attrs.push(tokens[i].clone());
-                    i += 1;
-                }
-                continue;
-            }
-        }
-        break;
-    }
-    let attrs_ts: TokenStream2 = attrs.into_iter().collect();
+    let attrs_ts = parse_attributes(tokens, &mut i);
 
     let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..]);
     i += vis_consumed;
@@ -1510,13 +1438,7 @@ fn parse_enum(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     };
 
     // 3. Check for <...> generic params
-    let mut generics = None;
-    if i < tokens.len() && is_punct(&tokens[i], '<') {
-        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
-        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
-        generics = Some(angle_ts);
-        i = tokens.len() - rest.len();
-    }
+    let generics = parse_generics_params(tokens, &mut i);
 
     // 4. Parse variants - each is a (...) group
     let mut variants = Vec::new();
@@ -1530,10 +1452,7 @@ fn parse_enum(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         i += 1;
     }
 
-    let gen = match &generics {
-        Some(g) => quote! { <#g> },
-        None => quote! {},
-    };
+    let gen = emit_generics(&generics);
 
     Ok(quote! {
         #attrs_ts
@@ -1616,7 +1535,7 @@ fn parse_struct_variant_fields(stream: TokenStream2) -> syn::Result<TokenStream2
 // ─── lisp_struct! ───────────────────────────────────────────────────────────
 #[proc_macro]
 pub fn lisp_struct(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_struct(&tokens);
     match result {
         Ok(ts) => ts.into(),
@@ -1628,22 +1547,7 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     let mut i = 0;
 
     // 1. Collect attributes
-    let mut attrs = Vec::new();
-    while i < tokens.len() {
-        if let TokenTree::Punct(p) = &tokens[i] {
-            if p.as_char() == '#' {
-                attrs.push(tokens[i].clone());
-                i += 1;
-                if i < tokens.len() {
-                    attrs.push(tokens[i].clone());
-                    i += 1;
-                }
-                continue;
-            }
-        }
-        break;
-    }
-    let attrs_ts: TokenStream2 = attrs.into_iter().collect();
+    let attrs_ts = parse_attributes(tokens, &mut i);
 
     // 2. Check for visibility
     let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..]);
@@ -1667,38 +1571,14 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         return Err(syn::Error::new(Span::call_site(), "lisp_struct!: expected struct name"));
     };
 
-    // 4. Consume <...> generic params (mandatory for this proc macro path)
-    let mut generics = None;
-    if i < tokens.len() && is_punct(&tokens[i], '<') {
-        let (angle_contents, rest) = consume_angle_brackets(&tokens[i..]);
-        let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
-        generics = Some(angle_ts);
-        i = tokens.len() - rest.len();
-    }
+    // 4. Consume <...> generic params
+    let generics = parse_generics_params(tokens, &mut i);
 
     // 5. Check for where clause
-    let mut where_clause = None;
-    if i < tokens.len() && is_ident(&tokens[i], "where") {
-        i += 1;
-        if i < tokens.len() {
-            if let TokenTree::Group(g) = &tokens[i] {
-                if g.delimiter() == Delimiter::Parenthesis {
-                    let inner = g.stream();
-                    where_clause = Some(inner);
-                    i += 1;
-                }
-            }
-        }
-    }
+    let where_clause = parse_where_clause(tokens, &mut i);
 
-    let gen = match &generics {
-        Some(g) => quote! { <#g> },
-        None => quote! {},
-    };
-    let where_cl = match &where_clause {
-        Some(w) => quote! { where #w },
-        None => quote! {},
-    };
+    let gen = emit_generics(&generics);
+    let where_cl = emit_where_clause(&where_clause);
 
     // 6. Parse fields — collect all remaining parenthesized groups as field groups.
     // Supports: named fields ((f T) ...), pub fields (pub (f T) ...), mixed (pub ...)(...),
@@ -1779,7 +1659,7 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // ─── lisp_fn! ───────────────────────────────────────────────────────────────
 #[proc_macro]
 pub fn lisp_fn(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_fn(&tokens);
     match result {
         Ok(ts) => ts.into(),
@@ -1809,18 +1689,9 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         i += 1;
     }
 
-    let gen = match &sig.generics {
-        Some(g) => quote! { <#g> },
-        None => quote! {},
-    };
-    let ret = match &sig.return_type {
-        Some(r) => quote! { -> #r },
-        None => quote! {},
-    };
-    let where_cl = match &sig.where_clause {
-        Some(w) => quote! { where #w },
-        None => quote! {},
-    };
+    let gen = emit_generics(&sig.generics);
+    let ret = emit_return_type(&sig.return_type);
+    let where_cl = emit_where_clause(&sig.where_clause);
     let attrs_ts = &sig.attrs;
     let quals_ts = &sig.quals;
     let fn_name = &sig.name;
@@ -1843,7 +1714,7 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // Everything before the last token is the pattern (emitted verbatim).
 #[proc_macro]
 pub fn lisp_let(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = TokenStream2::from(input).into_iter().collect();
+    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     if tokens.len() < 2 {
         return syn::Error::new(Span::call_site(), "lisp_let! requires a pattern and a value")
             .to_compile_error()
