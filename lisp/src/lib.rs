@@ -245,10 +245,10 @@ macro_rules! lisp {
     ($vis:vis static mut $name:ident $typ:ty = $val:expr) => ($vis static mut $name: $typ = $val;);
     ($vis:vis static $name:ident $typ:ty = $val:expr) => ($vis static $name: $typ = $val;);
 
-    // const/static (without = separator)
-    (const $name:ident $typ:tt $val:tt) => (const $name: $typ = $crate::lisp_arg!($val););
-    (static mut $name:ident $typ:tt $val:tt) => (static mut $name: $typ = $crate::lisp_arg!($val););
-    (static $name:ident $typ:tt $val:tt) => (static $name: $typ = $crate::lisp_arg!($val););
+    // const/static (without = separator — unified visibility)
+    ($vis:vis const $name:ident $typ:tt $val:tt) => ($vis const $name: $typ = $crate::lisp_arg!($val););
+    ($vis:vis static mut $name:ident $typ:tt $val:tt) => ($vis static mut $name: $typ = $crate::lisp_arg!($val););
+    ($vis:vis static $name:ident $typ:tt $val:tt) => ($vis static $name: $typ = $crate::lisp_arg!($val););
 
     // ── Match ────────────────────────────────────────────────
     // match with lisp body in parens
@@ -293,23 +293,13 @@ macro_rules! lisp {
 
     // ── Assignment ───────────────────────────────────────────
 
-    // = assignment
+    // = assignment (simple ident LHS — kept for $e:expr multi-token capture)
     (= $var:ident ( $($e:tt)+ )) => ($var = $crate::lisp!($($e)+););
     (= $var:ident $e:expr) => ($var = $e;);
 
-    // compound assignment
-    (+= $var:ident $e:tt) => ($var += $crate::lisp_arg!($e););
-    (-= $var:ident $e:tt) => ($var -= $crate::lisp_arg!($e););
-    (*= $var:ident $e:tt) => ($var *= $crate::lisp_arg!($e););
-    (/= $var:ident $e:tt) => ($var /= $crate::lisp_arg!($e););
-    (%= $var:ident $e:tt) => ($var %= $crate::lisp_arg!($e););
-    (&= $var:ident $e:tt) => ($var &= $crate::lisp_arg!($e););
-    (|= $var:ident $e:tt) => ($var |= $crate::lisp_arg!($e););
-    (^= $var:ident $e:tt) => ($var ^= $crate::lisp_arg!($e););
-    (<<= $var:ident $e:tt) => ($var <<= $crate::lisp_arg!($e););
-    (>>= $var:ident $e:tt) => ($var >>= $crate::lisp_arg!($e););
-
-    // assignment (arbitrary LHS — dispatched to proc macro)
+    // All assignment forms (including compound) dispatched to proc macro.
+    // The proc macro produces a bare expression (no trailing `;`), so these
+    // work in both statement and expression contexts.
     (= $($tokens:tt)+) => ($crate::lisp_assign!(= $($tokens)+));
     (+= $($tokens:tt)+) => ($crate::lisp_assign!(+= $($tokens)+));
     (-= $($tokens:tt)+) => ($crate::lisp_assign!(-= $($tokens)+));

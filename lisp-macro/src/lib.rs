@@ -352,9 +352,10 @@ fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
 
     // ── Single-character operators ──
     match ch {
-        // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...), (% a b)
-        '+' | '-' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
-        '*' | '/' | '%' if tokens.len() == 3 => {
+        // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...)
+        '+' | '-' | '*' | '/' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
+        // Binary modulo: (% a b)
+        '%' if tokens.len() == 3 => {
             let a = eval_lisp_arg(&tokens[1..2]);
             let b = eval_lisp_arg(&tokens[2..3]);
             let op = Punct::new(ch, Spacing::Alone);
@@ -1149,7 +1150,7 @@ pub fn lisp_assign(input: TokenStream) -> TokenStream {
     };
 
     let result = quote! {
-        #lhs_ts #op_ts #rhs_ts;
+        #lhs_ts #op_ts #rhs_ts
     };
     result.into()
 }
