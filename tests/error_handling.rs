@@ -33,13 +33,13 @@ fn panic_test() {
 
 #[test]
 fn assert_eq_test() {
-    lisp!(macro! assert_eq 5 5);
-    lisp!(macro! assert_eq "hello" "hello");
+    lisp!(assert_eq! 5 5);
+    lisp!(assert_eq! "hello" "hello");
 }
 
 #[test]
 fn assert_basic() {
-    lisp!(macro! assert true "should be true");
+    lisp!(assert! true "should be true");
 }
 
 #[test]

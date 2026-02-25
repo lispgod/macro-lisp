@@ -11,7 +11,7 @@ fn core_ops_add() {
     lisp!(impl core::ops::Add for Vec2
         (type Output = Vec2)
         (fn add ((self Self) (rhs Self)) Vec2
-            (struct - lit Vec2 (x (+ (self.x) (. rhs x))) (y (+ (self.y) (. rhs y))))));
+            (new Vec2 (x (+ (self.x) (. rhs x))) (y (+ (self.y) (. rhs y))))));
     let a = Vec2 { x: 1, y: 2 };
     let b = Vec2 { x: 3, y: 4 };
     assert_eq!(a + b, Vec2 { x: 4, y: 6 });
@@ -23,7 +23,7 @@ fn core_fmt_display() {
     struct Pair { a: i32, b: i32 }
     lisp!(impl core::fmt::Display for Pair
         (fn fmt ((self &Self) (f &mut core::fmt::Formatter)) core::fmt::Result
-            (macro! write f "({}, {})" (self.a) (self.b))));
+            (write! f "({}, {})" (self.a) (self.b))));
     let p = Pair { a: 3, b: 7 };
     assert_eq!(format!("{}", p), "(3, 7)");
 }
@@ -35,7 +35,7 @@ fn core_default() {
     struct Point { x: i32, y: i32 }
     lisp!(impl core::default::Default for Point
         (fn default () Point
-            (struct - lit Point (x 0) (y 0))));
+            (new Point (x 0) (y 0))));
     let p: Point = Default::default();
     assert_eq!(p, Point { x: 0, y: 0 });
 }
@@ -47,7 +47,7 @@ fn core_convert_from() {
     struct Fahrenheit { val: f64 }
     lisp!(impl core::convert::From<Celsius> for Fahrenheit
         (fn from ((c Celsius)) Fahrenheit
-            (struct - lit Fahrenheit (val (+ (* (. c val) 1.8) 32.0)))));
+            (new Fahrenheit (val (+ (* (. c val) 1.8) 32.0)))));
     let f: Fahrenheit = Celsius { val: 100.0 }.into();
     assert!((f.val - 212.0).abs() < f64::EPSILON);
 }
@@ -58,7 +58,7 @@ fn core_clone() {
     struct MyVal { n: i32 }
     lisp!(impl core::clone::Clone for MyVal
         (fn clone ((self &Self)) MyVal
-            (struct - lit MyVal (n (self.n)))));
+            (new MyVal (n (self.n)))));
     let a = MyVal { n: 42 };
     let b = a.clone();
     assert_eq!(b.n, 42);
@@ -72,7 +72,7 @@ fn core_ops_neg() {
     lisp!(impl core::ops::Neg for Num
         (type Output = Num)
         (fn neg ((self Self)) Num
-            (struct - lit Num (val (neg (self.val))))));
+            (new Num (val (neg (self.val))))));
     let n = Num { val: 5 };
     assert_eq!(-n, Num { val: -5 });
 }

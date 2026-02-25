@@ -10,4 +10,4 @@ lisp!(fn factorial ((n i32)) i32
 
 lisp!(fn main () ()
     (let num (factorial 10))
-    (macro! println "10! = {}" num));
+    (println! "10! = {}" num));

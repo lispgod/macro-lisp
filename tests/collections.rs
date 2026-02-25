@@ -46,7 +46,7 @@ fn new_struct_construction() {
         x: i32,
         y: i32,
     }
-    let p = lisp!(struct - lit Pos (x 10) (y 20));
+    let p = lisp!(new Pos (x 10) (y 20));
     assert_eq!(p.x, 10);
     assert_eq!(p.y, 20);
 }

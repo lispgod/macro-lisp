@@ -71,9 +71,9 @@ fn scoped_let_mutation() {
         (let ((a 1) (b 2))
             (+= a 10)
             (-= b 1)
-            (macro! assert_eq 11 a)
-            (macro! assert_eq 1 b))
-        (macro! assert_eq x 100)
+            (assert_eq! 11 a)
+            (assert_eq! 1 b))
+        (assert_eq! x 100)
     );
 }
 

@@ -136,9 +136,9 @@
 //! ## Assertions & Output
 //! | S-expression | Rust output |
 //! |---|---|
-
 //! | `(panic args...)` | `panic!(args...)` |
-//! | `(macro! name args...)` | `name!(args...)` |
+//! | `(name! args...)` | `name!(args...)` |
+//! | `(macro! name args...)` | `name!(args...)` (legacy) |
 //!
 //! ## Logical Operators
 //! | S-expression | Rust output |
@@ -184,7 +184,8 @@
 //! | `(. obj field)` | `obj.field` |
 //! | `(. obj a b c)` | `obj.a.b.c` |
 
-//! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` |
+//! | `(new Name (f1 v1)...)` | `Name { f1: v1, ... }` |
+//! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` (legacy) |
 
 //! | `(tuple a b c)` | `(a, b, c)` |
 //! | `(tuple a)` | `(a,)` |
@@ -859,11 +860,13 @@ macro_rules! lisp {
     (. $obj:tt $( $name:ident )+) => ($crate::lisp_arg!($obj) $(.$name)+);
 
     // ── Construction ─────────────────────────────────────────
-    // struct-lit (struct construction with hyphenated keyword)
+    // new (struct construction)
+    (new $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
+    (new $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
+    (new $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
+    // struct-lit (legacy alias — kept for backward compatibility)
     (struct - lit $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
-    // struct-lit with spread (.. base)
     (struct - lit $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
-    // struct-lit with field shorthand only (bare idents)
     (struct - lit $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
 
     // ── Len ──────────────────────────────────────────────────
@@ -885,6 +888,10 @@ macro_rules! lisp {
     // ── Macro invocation ─────────────────────────────────────
     (macro ! $name:ident $(:: $name2:ident)* $($args:tt)*) => ($name $(:: $name2)* ! ($($crate::lisp_arg!($args)),*));
 
+    // ── Macro invocation shorthand (ident! args...) ──────────
+    ( $sym:ident $(:: $sym2:ident )+ ! $($args:tt)* ) => ( $sym $(:: $sym2 )+ ! ($($crate::lisp_arg!($args)),*) );
+    ( $name:ident ! $($args:tt)* ) => ( $name ! ($($crate::lisp_arg!($args)),*) );
+
     // ── Catch-all ────────────────────────────────────────────
     ( $sym:ident $(:: $sym2:ident )+ $( $e:tt )* ) => ( $sym $(:: $sym2 )+ ( $($crate::lisp_arg!($e)),* ) );
     ( $sym:ident . $( $sym2:ident ).+ $( $e:tt )* ) => ( $sym.$( $sym2 ).+ ( $($crate::lisp_arg!($e)),* ) );
@@ -901,6 +908,7 @@ macro_rules! lisp_arg {
 
 #[macro_export]
 macro_rules! lisp_match_arg {
+    ($name:ident ! $($args:tt)*) => ($name ! ($($crate::lisp_arg!($args)),*));
     ($e:expr) => ($e);
     ( $($e:tt)* ) => ($crate::lisp!( $($e)* ));
 }

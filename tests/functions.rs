@@ -14,7 +14,7 @@ lisp!(fn do_nothing());
 
 // Named function with body
 lisp!(fn greet () ()
-    (macro! println "hello")
+    (println! "hello")
 );
 
 // Public function

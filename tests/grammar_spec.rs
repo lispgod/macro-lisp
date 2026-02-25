@@ -248,7 +248,7 @@ fn array_repeat() {
 #[test]
 fn struct_lit_construction() {
     struct Point { x: i32, y: i32 }
-    let p: Point = lisp!(struct - lit Point (x 10) (y 20));
+    let p: Point = lisp!(new Point (x 10) (y 20));
     assert_eq!(p.x, 10);
     assert_eq!(p.y, 20);
 }

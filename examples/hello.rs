@@ -5,7 +5,7 @@ use macro_lisp::lisp;
 
 lisp!(pub mod module_test
     (pub fn hello () ()
-        (macro! println "Hello, macro-lisp!")
+        (println! "Hello, macro-lisp!")
     )
 );
 

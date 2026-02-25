@@ -44,7 +44,7 @@ lisp!(struct Evaluator
 
 lisp!(impl Evaluator
     (fn new () Evaluator
-        (struct - lit Evaluator (call_count 0)))
+        (new Evaluator (call_count 0)))
 
     (fn eval ((&mut self) (expr &Expr)) f64
         (+= self.call_count 1)
@@ -79,10 +79,10 @@ lisp!(impl Evaluator
 lisp!(impl core::fmt::Display for BinOpKind
     (fn fmt ((self &Self) (f &mut core::fmt::Formatter)) core::fmt::Result
         (match self
-            (BinOpKind::Add => (macro! write f "+"))
-            (BinOpKind::Sub => (macro! write f "-"))
-            (BinOpKind::Mul => (macro! write f "*"))
-            (BinOpKind::Div => (macro! write f "/")))));
+            (BinOpKind::Add => (write! f "+"))
+            (BinOpKind::Sub => (write! f "-"))
+            (BinOpKind::Mul => (write! f "*"))
+            (BinOpKind::Div => (write! f "/")))));
 
 // =============================================================================
 // Part 5: Display trait implementation for Expr
@@ -91,9 +91,9 @@ lisp!(impl core::fmt::Display for BinOpKind
 lisp!(impl core::fmt::Display for Expr
     (fn fmt ((self &Self) (f &mut core::fmt::Formatter)) core::fmt::Result
         (match self
-            (Expr::Literal(v) => (macro! write f "{}" v))
-            (Expr::Neg { inner } => (macro! write f "(-{})" inner))
-            (Expr::BinOp { op, lhs, rhs } => (macro! write f "({} {} {})" lhs op rhs)))));
+            (Expr::Literal(v) => (write! f "{}" v))
+            (Expr::Neg { inner } => (write! f "(-{})" inner))
+            (Expr::BinOp { op, lhs, rhs } => (write! f "({} {} {})" lhs op rhs)))));
 
 // =============================================================================
 // Part 6: Helper functions to build AST nodes
@@ -254,7 +254,7 @@ lisp!(struct Stats
 
 lisp!(impl Stats
     (fn new () Stats
-        (struct - lit Stats (count 0) (sum 0.0) (min f64::INFINITY) (max f64::NEG_INFINITY)))
+        (new Stats (count 0) (sum 0.0) (min f64::INFINITY) (max f64::NEG_INFINITY)))
 
     (fn add ((&mut self) (val f64))
         (+= self.count 1)
@@ -368,7 +368,7 @@ fn test_display_binop_kind() {
 fn test_display_expr() {
     // Display: (3 + 4)
     let expr = make_binop(BinOpKind::Add, make_lit(3.0), make_lit(4.0));
-    let s = lisp!(macro! format "{}" expr);
+    let s = lisp!(format! "{}" expr);
     assert_eq!(s, "(3 + 4)");
 }
 
@@ -446,7 +446,7 @@ fn test_stats() {
     assert!((stats.min - 10.0).abs() < 1e-10);
     assert!((stats.max - 50.0).abs() < 1e-10);
 
-    let display = lisp!(macro! format "{}" stats);
+    let display = lisp!(format! "{}" stats);
     assert_eq!(display, "Stats(n=5, mean=30.00)");
 }
 
@@ -558,7 +558,7 @@ fn test_vec_and_tuple() {
 
 #[test]
 fn test_format_macro() {
-    let s = lisp!(macro! format "Hello, {}! {} + {} = {}" "world" 2 3 5);
+    let s = lisp!(format! "Hello, {}! {} + {} = {}" "world" 2 3 5);
     assert_eq!(s, "Hello, world! 2 + 3 = 5");
 }
 
@@ -627,7 +627,7 @@ fn test_full_pipeline() {
     assert!((result - 7.0).abs() < 1e-10);
 
     // Display
-    let display = lisp!(macro! format "{}" expr);
+    let display = lisp!(format! "{}" expr);
     assert_eq!(display, "(3 + 4)");
 
     // More complex: (3 + 4) * (10 - 5) = 35
@@ -638,6 +638,6 @@ fn test_full_pipeline() {
     let result = ev.eval(&complex);
     assert!((result - 35.0).abs() < 1e-10);
 
-    let display = lisp!(macro! format "{}" complex);
+    let display = lisp!(format! "{}" complex);
     assert_eq!(display, "((3 + 4) * (10 - 5))");
 }
