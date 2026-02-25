@@ -136,9 +136,9 @@
 //! ## Assertions & Output
 //! | S-expression | Rust output |
 //! |---|---|
-
 //! | `(panic args...)` | `panic!(args...)` |
-//! | `(macro! name args...)` | `name!(args...)` |
+//! | `(name! args...)` | `name!(args...)` |
+//! | `(macro! name args...)` | `name!(args...)` (legacy) |
 //!
 //! ## Logical Operators
 //! | S-expression | Rust output |
@@ -184,7 +184,8 @@
 //! | `(. obj field)` | `obj.field` |
 //! | `(. obj a b c)` | `obj.a.b.c` |
 
-//! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` |
+//! | `(new Name (f1 v1)...)` | `Name { f1: v1, ... }` |
+//! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` (legacy) |
 
 //! | `(tuple a b c)` | `(a, b, c)` |
 //! | `(tuple a)` | `(a,)` |
