@@ -133,3 +133,60 @@ fn struct_derive() {
     assert_eq!(s, s2);
     assert_eq!(format!("{:?}", s), "DerivedStruct { x: 42 }");
 }
+
+// ── Compound assignment: unified proc-macro dispatch ──────
+
+#[test]
+fn compound_assign_simple_ident() {
+    let mut x: i32 = 10;
+    lisp!(+= x 5);
+    assert_eq!(x, 15);
+    lisp!(-= x 3);
+    assert_eq!(x, 12);
+    lisp!(*= x 2);
+    assert_eq!(x, 24);
+    lisp!(/= x 4);
+    assert_eq!(x, 6);
+    lisp!(%= x 4);
+    assert_eq!(x, 2);
+}
+
+#[test]
+fn compound_assign_bitwise() {
+    let mut x: u8 = 0xFF;
+    lisp!(&= x 0x0F);
+    assert_eq!(x, 0x0F);
+    lisp!(|= x 0xF0);
+    assert_eq!(x, 0xFF);
+    lisp!(^= x 0x0F);
+    assert_eq!(x, 0xF0);
+    lisp!(<<= x 1);
+    assert_eq!(x, 0xE0);
+    lisp!(>>= x 4);
+    assert_eq!(x, 0x0E);
+}
+
+// ── const/static: visibility without = separator ──────────
+
+lisp!(pub const PUB_CONST_NO_EQ i32 100);
+lisp!(pub static PUB_STATIC_NO_EQ i32 200);
+
+#[test]
+fn pub_const_static_without_eq() {
+    assert_eq!(PUB_CONST_NO_EQ, 100);
+    assert_eq!(PUB_STATIC_NO_EQ, 200);
+}
+
+// ── Variadic * and / ──────────────────────────────────────
+
+#[test]
+fn variadic_multiply() {
+    let result: i32 = lisp!(* 2 3 4);
+    assert_eq!(result, 24);
+}
+
+#[test]
+fn variadic_divide() {
+    let result: i32 = lisp!(/ 120 2 3);
+    assert_eq!(result, 20);
+}
