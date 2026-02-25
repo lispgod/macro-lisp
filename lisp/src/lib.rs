@@ -624,10 +624,20 @@ macro_rules! lisp {
         }
     );
 
+    // closure (fn move) — untyped params
+    (fn move ( $( ( $name:ident ) )+ )
+        $( ( $($e:tt)* ))*
+    ) => (move | $($name),* |{ $( $crate::lisp!( $($e)* ) );* });
+
     // closure (fn move)
     (fn move ( $( ( $name:ident $typ:ty ) )* )
         $( ( $($e:tt)* ))*
     ) => (move | $($name : $typ),* |{ $( $crate::lisp!( $($e)* ) );* });
+
+    // closure (fn) — untyped params
+    (fn ( $( ( $name:ident ) )+ )
+        $( ( $($e:tt)* ))*
+    ) => (| $($name),* |{ $( $crate::lisp!( $($e)* ) );* });
 
     // closure (fn)
     (fn ( $( ( $name:ident $typ:ty ) )* )
