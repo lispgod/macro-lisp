@@ -63,14 +63,13 @@ fn consume_type_path(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
                 result.push(tt.clone());
                 i += 1;
                 // Check for :: after ident
-                if i + 1 < tokens.len() {
-                    if is_punct(&tokens[i], ':') && i + 1 < tokens.len() && is_punct(&tokens[i + 1], ':') {
+                if i + 1 < tokens.len()
+                    && is_punct(&tokens[i], ':') && i + 1 < tokens.len() && is_punct(&tokens[i + 1], ':') {
                         result.push(tokens[i].clone());
                         result.push(tokens[i + 1].clone());
                         i += 2;
                         continue;
                     }
-                }
                 // Check for <...> after ident
                 if i < tokens.len() && is_punct(&tokens[i], '<') {
                     result.push(tokens[i].clone()); // <
@@ -548,7 +547,7 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                 } else {
                     // No args — method call with zero args (like the original catch-all)
                     // EXCEPT for `self.x.y` which is field access
-                    if first.to_string() == "self" {
+                    if *first == "self" {
                         return quote! { #path_ts };
                     }
                     return quote! { #path_ts() };
@@ -660,12 +659,10 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
         } else {
             quote! { let #var_name = #val; }
         }
+    } else if is_mut {
+        quote! { let mut #var_name; }
     } else {
-        if is_mut {
-            quote! { let mut #var_name; }
-        } else {
-            quote! { let #var_name; }
-        }
+        quote! { let #var_name; }
     }
 }
 
@@ -973,7 +970,7 @@ fn parse_assign_op(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
             match ch {
                 '=' => {
                     op.push(tokens[i].clone());
-                    return (op, &tokens[i + 1..]);
+                    (op, &tokens[i + 1..])
                 }
                 '+' | '-' | '*' | '/' | '%' | '&' | '|' | '^' => {
                     op.push(tokens[i].clone());
@@ -987,7 +984,7 @@ fn parse_assign_op(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
                         }
                     }
                     // Not a compound op, shouldn't happen
-                    return (vec![], tokens);
+                    (vec![], tokens)
                 }
                 '<' => {
                     // Could be <<= 
@@ -1009,7 +1006,7 @@ fn parse_assign_op(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
                             }
                         }
                     }
-                    return (vec![], tokens);
+                    (vec![], tokens)
                 }
                 '>' => {
                     // Could be >>=
@@ -1031,12 +1028,12 @@ fn parse_assign_op(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
                             }
                         }
                     }
-                    return (vec![], tokens);
+                    (vec![], tokens)
                 }
-                _ => return (vec![], tokens),
+                _ => (vec![], tokens),
             }
         }
-        _ => return (vec![], tokens),
+        _ => (vec![], tokens),
     }
 }
 
@@ -1100,7 +1097,7 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             if let TokenTree::Group(g) = &tokens[i] {
                 if g.delimiter() == Delimiter::Parenthesis {
                     // where (T: Clone + Debug)
-                    where_tokens.extend(g.stream().into_iter());
+                    where_tokens.extend(g.stream());
                     i += 1;
                 }
             }
