@@ -1,0 +1,5 @@
+error: expected expression, found `=`
+ --> tests/errors/assign_missing_rhs.rs:4:12
+  |
+4 |     lisp!((= x));
+  |            ^ expected expression

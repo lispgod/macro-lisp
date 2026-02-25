@@ -1,0 +1,13 @@
+error: expected expression, found `let` statement
+ --> tests/errors/let_missing_value.rs:4:12
+  |
+4 |     lisp!((let x));
+  |            ^^^
+  |
+  = note: only supported directly in conditions of `if` and `while` expressions
+
+error: expected one of `=`, `@`, or `|`, found `)`
+ --> tests/errors/let_missing_value.rs:4:17
+  |
+4 |     lisp!((let x));
+  |                 ^ expected one of `=`, `@`, or `|`

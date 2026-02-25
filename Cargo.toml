@@ -14,3 +14,6 @@ description = "Lisp-like DSL for Rust language."
 
 [dependencies]
 lisp = { path = "lisp" }
+
+[dev-dependencies]
+trybuild = "1.0.116"
