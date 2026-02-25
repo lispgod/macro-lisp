@@ -66,7 +66,7 @@ macro_rules! lisp {
     );
 
     // match
-    (match $e:tt $( ( $pattern:pat $(| $pat2:pat)* => ( $($e2:tt)* ) ) )* ) => (
+    (match $e:tt $( ( $pattern:pat_param $(| $pat2:pat_param)* => ( $($e2:tt)* ) ) )* ) => (
         match $crate::lisp_arg!($e) {
             $($pattern $(| $pat2)* => $crate::lisp_match_arg!($($e2)*) ),*
         }
@@ -363,13 +363,14 @@ macro_rules! lisp {
         (| $($name : $typ),* | { $( $crate::lisp!( $($e)* ) );* })( $($crate::lisp_arg!($e2)),* )
     );
 
+    // execute rust
+    (rust $( $st:stmt )* ) => ( $($st);* );
+
     // ident
     ( $sym:ident $(:: $sym2:ident )+ $( $e:tt )* ) => ( $sym $(:: $sym2 )+ ( $($crate::lisp_arg!($e)),* ) );
     ( $sym:ident . $( $sym2:ident ).+ $( $e:tt )* ) => ( $sym.$( $sym2 ).+ ( $($crate::lisp_arg!($e)),* ) );
     ( $sym:ident $( $e:tt )* ) => ( $sym ( $($crate::lisp_arg!($e)),* ) );
 
-    // execute rust
-    (rust $( $st:stmt )* ) => ( $($st);* );
     // other
     ($e:expr) => ($e);
 }

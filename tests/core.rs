@@ -1,10 +1,9 @@
 #![allow(unused_variables)]
 #![allow(unused_mut)]
+#![allow(unused_assignments)]
 #![allow(dead_code)]
 #![allow(unreachable_code)]
 //#![feature(trace_macros)]
-
-extern crate macro_lisp;
 
 #[cfg(test)]
 mod tests {
@@ -252,5 +251,210 @@ mod tests {
 
         lisp!(defvar (x i64) 5);
         lisp!(defvar (s String) "test".to_owned());
+    }
+
+    #[test]
+    fn test_vec() {
+        let v = lisp!(vec 1 2 3);
+        assert_eq!(vec![1, 2, 3], v);
+
+        let empty: Vec<i32> = lisp!(vec);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn test_tuple() {
+        let t = lisp!(tuple 1 2 3);
+        assert_eq!((1, 2, 3), t);
+
+        let pair = lisp!(tuple 10 20);
+        assert_eq!((10, 20), pair);
+    }
+
+    #[test]
+    fn test_format() {
+        let s = lisp!(format "{} + {} = {}" 1 2 3);
+        assert_eq!("1 + 2 = 3", s);
+    }
+
+    #[test]
+    fn test_arithmetic() {
+        let a = lisp!(- 10 3);
+        assert_eq!(7, a);
+
+        let b = lisp!(* 4 5);
+        assert_eq!(20, b);
+
+        let c = lisp!(/ 20 4);
+        assert_eq!(5, c);
+
+        let d = lisp!(% 17 5);
+        assert_eq!(2, d);
+
+        let e = lisp!(+ 3 4);
+        assert_eq!(7, e);
+    }
+
+    #[test]
+    fn test_comparisons() {
+        assert!(lisp!(!= 1 2));
+        assert!(!lisp!(!= 1 1));
+
+        assert!(lisp!(< 1 2));
+        assert!(!lisp!(< 2 1));
+
+        assert!(lisp!(> 2 1));
+        assert!(!lisp!(> 1 2));
+
+        assert!(lisp!(<= 1 2));
+        assert!(lisp!(<= 2 2));
+        assert!(!lisp!(<= 3 2));
+
+        assert!(lisp!(>= 2 1));
+        assert!(lisp!(>= 2 2));
+        assert!(!lisp!(>= 1 2));
+
+        assert!(lisp!(eq 5 5));
+        assert!(!lisp!(eq 5 6));
+    }
+
+    #[test]
+    fn test_not() {
+        assert_eq!(true, lisp!(! false));
+        assert_eq!(false, lisp!(! true));
+    }
+
+    #[test]
+    fn test_len() {
+        let v = vec![1, 2, 3, 4];
+        assert_eq!(4, lisp!(len v));
+
+        let s = "hello";
+        assert_eq!(5, lisp!(len s));
+    }
+
+    #[test]
+    fn test_one_plus_minus() {
+        assert_eq!(6, lisp!(1+ 5));
+        assert_eq!(4, lisp!(1- 5));
+    }
+
+    #[test]
+    fn test_incf_decf() {
+        lisp!(progn
+            (defvar x 10)
+            (incf x)
+            (assert-eq 11 x)
+            (decf x)
+            (decf x)
+            (assert-eq 9 x)
+        );
+    }
+
+    #[test]
+    fn test_rust_escape() {
+        lisp!(rust
+            let x: i32 = 42
+        );
+        assert_eq!(42, x);
+    }
+
+    #[test]
+    fn test_lambda_move() {
+        lisp!(progn
+            (defconstant val 42)
+            (defconstant f (lambda move () (+ val 0)))
+            (defconstant result (f))
+            (assert-eq 42 result)
+        );
+    }
+
+    lisp!(pub defun pub_add ((a i32) (b i32)) i32
+        (+ a b)
+    );
+
+    #[test]
+    fn test_pub_defun() {
+        let result = lisp!(pub_add 10 20);
+        assert_eq!(30, result);
+    }
+
+    #[test]
+    fn test_generic_struct() {
+        let p: Point<i32> = Point { x: 1, y: 2 };
+        assert_eq!(1, p.x);
+        assert_eq!(2, p.y);
+    }
+
+    #[test]
+    fn test_loop_continue() {
+        lisp!(progn
+            (defvar sum 0)
+            (dotimes (i 10)
+                (if (== (% i 2) 0)
+                    (continue))
+                (setf sum (+ sum i)))
+            (assert-eq 25 sum)
+        );
+    }
+
+    lisp!(defun fibonacci ((n i32)) i32
+        (if (<= n 1)
+            n
+            (+ (fibonacci (- n 1)) (fibonacci (- n 2)))));
+
+    #[test]
+    fn test_recursive_defun() {
+        assert_eq!(0, lisp!(fibonacci 0));
+        assert_eq!(1, lisp!(fibonacci 1));
+        assert_eq!(1, lisp!(fibonacci 2));
+        assert_eq!(55, lisp!(fibonacci 10));
+    }
+
+    #[test]
+    fn test_nested_if() {
+        lisp!(progn
+            (defconstant x 15)
+            (defconstant result
+                (if (== (% x 15) 0)
+                    (format "FizzBuzz")
+                    (if (== (% x 3) 0)
+                        (format "Fizz")
+                        (if (== (% x 5) 0)
+                            (format "Buzz")
+                            (format "{}" x)))))
+            (assert-eq "FizzBuzz" result)
+        );
+    }
+
+    #[test]
+    fn test_defconstant_with_expr() {
+        lisp!(progn
+            (defconstant x (+ 3 4))
+            (assert-eq 7 x)
+
+            (defconstant (y i64) (+ 10 20))
+            (assert-eq 30 y)
+        );
+    }
+
+    #[test]
+    fn test_setf_with_expr() {
+        lisp!(progn
+            (defvar x 0)
+            (setf x (+ 3 4))
+            (assert-eq 7 x)
+        );
+    }
+
+    #[test]
+    fn test_defvar_with_expr() {
+        lisp!(progn
+            (defvar x (+ 1 2))
+            (assert-eq 3 x)
+
+            (defvar (y i32) (* 3 4))
+            (assert-eq 12 y)
+        );
     }
 }

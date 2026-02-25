@@ -2,8 +2,6 @@
 #![allow(unused_must_use)]
 #![allow(unused_imports)]
 
-extern crate macro_lisp;
-
 #[cfg(test)]
 mod file_tests {
     use macro_lisp::*;

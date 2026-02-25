@@ -1,10 +1,5 @@
 // run command:
-//    $ rustup run nightly cargo run --example factorial
-//
-// if not install nightly, then
-//    $ rustup install nightly
-
-extern crate macro_lisp;
+//    $ cargo run --example factorial
 
 use macro_lisp::lisp;
 
