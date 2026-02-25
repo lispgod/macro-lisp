@@ -4,11 +4,11 @@
 
 use macro_lisp::lisp;
 
-lisp!(module module_test
+lisp!(mod module_test
     (fn do_nothing())
 
     (fn hello () ()
-        (println "Hello")
+        (macro! println "Hello")
     )
 
     (fn add ((x i32) (y i32)) i32
@@ -17,6 +17,6 @@ lisp!(module module_test
 
     (#[test] fn test_add () ()
         (let num (add 1 2))
-        (assert eq 3 num)
+        (macro! assert_eq 3 num)
     )
 );

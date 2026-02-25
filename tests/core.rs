@@ -14,11 +14,11 @@ mod tests {
             (let mut num Some(0))
             (while let (Some(i) = num)
                 (if (> i 9)
-                    (set num None)
-                    (set num Some(i + 1))
+                    (= num None)
+                    (= num Some(i + 1))
                 )
             )
-            (assert eq None num)
+            (macro! assert_eq None num)
         );
     }
 
@@ -28,7 +28,7 @@ mod tests {
             (let number Some(7))
             (if let (Some(i) = number)
                 // success let
-                (assert eq 7 i)
+                (macro! assert_eq 7 i)
                 // else
                 (panic "fail if-let")
             )
@@ -66,11 +66,11 @@ mod tests {
             (let x (match s
                 ("test" => (1))
                 (_ =>  (-1))))
-            (assert eq 1 x)
+            (macro! assert_eq 1 x)
 
             (match s
-                ("hello" => (println "world"))
-                (_ => (println "Hum?")))
+                ("hello" => (macro! println "world"))
+                (_ => (macro! println "Hum?")))
         );
     }
 
@@ -80,7 +80,7 @@ mod tests {
             (let f
                 (fn ((x i32)) (+ x 1)))
             (let x (f 5))
-            (assert eq 6 x)
+            (macro! assert_eq 6 x)
         );
     }
 
@@ -95,7 +95,7 @@ mod tests {
                 (+= x 1)
                 (break)
             )
-            (assert eq 1 x)
+            (macro! assert_eq 1 x)
         );
     }
 
@@ -104,13 +104,13 @@ mod tests {
         let vec = lisp!(vec 1 2 3 4 5);
         lisp!(let ((x 0))
             (for num in vec
-                (set x (+ x num)))
-            (assert eq 15 x)
+                (= x (+ x num)))
+            (macro! assert_eq 15 x)
         );
         lisp!(let ((x 0))
             (for num in (vec 1 2 3 4 5)
-                (set x (+ x num)))
-            (assert eq 15 x)
+                (= x (+ x num)))
+            (macro! assert_eq 15 x)
         );
     }
 
@@ -123,7 +123,7 @@ mod tests {
                 (+= x 1)
                 (+= y 2))
             (let num y)
-            (assert eq num 12)
+            (macro! assert_eq num 12)
         );
     }
 
@@ -136,10 +136,10 @@ mod tests {
                   (y 2))
                 (+= x 1)
                 (-= y 1)
-                (assert eq x 2)
-                (assert eq y 1))
-            (assert eq x 3)
-            (assert eq y 5)
+                (macro! assert_eq x 2)
+                (macro! assert_eq y 1))
+            (macro! assert_eq x 3)
+            (macro! assert_eq y 5)
         );
     }
 
@@ -147,9 +147,9 @@ mod tests {
     fn test_for_range() {
         lisp!(block
             (let mut x 0)
-            (for y in (range 0 5)
-                (set x (+ x y)))
-            (assert eq x 10)
+            (for y in (.. 0 5)
+                (= x (+ x y)))
+            (macro! assert_eq x 10)
         );
     }
 
@@ -159,7 +159,7 @@ mod tests {
             (let mut x 0)
             (while (< x 10)
                 (+= x 1))
-            (assert eq x 10)
+            (macro! assert_eq x 10)
         );
     }
 
@@ -167,18 +167,18 @@ mod tests {
     fn test_when_unless() {
         lisp!(block
             (let mut x 0)
-            (when true
-                (set x 1))
-            (when false
-                (set x 2))
-            (assert eq 1 x)
+            (if true
+                (= x 1))
+            (if false
+                (= x 2))
+            (macro! assert_eq 1 x)
 
             (let mut y 0)
-            (unless true
-                (set y 1))
-            (unless false
-                (set y 2))
-            (assert eq y 2)
+            (if (! true)
+                (= y 1))
+            (if (! false)
+                (= y 2))
+            (macro! assert_eq y 2)
         );
     }
 
@@ -188,22 +188,22 @@ mod tests {
             (let x 3)
             (let y 4)
             (let mut z (* x y))
-            (assert eq 12 z)
+            (macro! assert_eq 12 z)
         );
     }
 
     #[test]
     fn test_if() {
-        lisp!(if (== 1 1) (println "equal"));
-        lisp!(if (== 2 2) (println "equal") (println "not equal"));
+        lisp!(if (== 1 1) (macro! println "equal"));
+        lisp!(if (== 2 2) (macro! println "equal") (macro! println "not equal"));
         let x = lisp!(if true (+ 1 1) (+ 2 2));
         assert_eq!(2, x);
 
-        lisp!(if (<= 1 2) (println "True") (println "False"));
+        lisp!(if (<= 1 2) (macro! println "True") (macro! println "False"));
     }
 
     lisp!(fn hello () ()
-        (println "Hello")
+        (macro! println "Hello")
     );
 
     lisp!(fn add1 ((x i32)) i32
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_macro_utils() {
-        lisp!(print "hello, {}" "world");
+        lisp!(macro! print "hello, {}" "world");
     }
 
     #[test]
@@ -244,7 +244,7 @@ mod tests {
     fn test_let_mut() {
         lisp!(let mut x 0);
         assert_eq!(0, x);
-        lisp!(set x 1);
+        lisp!(= x 1);
         assert_eq!(1, x);
 
         lisp!(let mut (x i64) 5);
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_format() {
-        let s = lisp!(format "{} + {} = {}" 1 2 3);
+        let s = lisp!(macro! format "{} + {} = {}" 1 2 3);
         assert_eq!("1 + 2 = 3", s);
     }
 
@@ -325,10 +325,10 @@ mod tests {
     #[test]
     fn test_len() {
         let v = vec![1, 2, 3, 4];
-        assert_eq!(4, lisp!(len v));
+        assert_eq!(4, lisp!(v.len));
 
         let s = "hello";
-        assert_eq!(5, lisp!(len s));
+        assert_eq!(5, lisp!(s.len));
     }
 
     #[test]
@@ -336,10 +336,10 @@ mod tests {
         lisp!(block
             (let mut x 10)
             (+= x 1)
-            (assert eq 11 x)
+            (macro! assert_eq 11 x)
             (-= x 1)
             (-= x 1)
-            (assert eq 9 x)
+            (macro! assert_eq 9 x)
         );
     }
 
@@ -357,7 +357,7 @@ mod tests {
             (let val 42)
             (let f (fn move () (+ val 0)))
             (let result (f))
-            (assert eq 42 result)
+            (macro! assert_eq 42 result)
         );
     }
 
@@ -382,11 +382,11 @@ mod tests {
     fn test_loop_continue() {
         lisp!(block
             (let mut sum 0)
-            (for i in (range 0 10)
+            (for i in (.. 0 10)
                 (if (== (% i 2) 0)
                     (continue))
-                (set sum (+ sum i)))
-            (assert eq 25 sum)
+                (= sum (+ sum i)))
+            (macro! assert_eq 25 sum)
         );
     }
 
@@ -409,13 +409,13 @@ mod tests {
             (let x 15)
             (let result
                 (if (== (% x 15) 0)
-                    (format "FizzBuzz")
+                    (macro! format "FizzBuzz")
                     (if (== (% x 3) 0)
-                        (format "Fizz")
+                        (macro! format "Fizz")
                         (if (== (% x 5) 0)
-                            (format "Buzz")
-                            (format "{}" x)))))
-            (assert eq "FizzBuzz" result)
+                            (macro! format "Buzz")
+                            (macro! format "{}" x)))))
+            (macro! assert_eq "FizzBuzz" result)
         );
     }
 
@@ -423,10 +423,10 @@ mod tests {
     fn test_let_with_expr() {
         lisp!(block
             (let x (+ 3 4))
-            (assert eq 7 x)
+            (macro! assert_eq 7 x)
 
             (let (y i64) (+ 10 20))
-            (assert eq 30 y)
+            (macro! assert_eq 30 y)
         );
     }
 
@@ -434,8 +434,8 @@ mod tests {
     fn test_set_with_expr() {
         lisp!(block
             (let mut x 0)
-            (set x (+ 3 4))
-            (assert eq 7 x)
+            (= x (+ 3 4))
+            (macro! assert_eq 7 x)
         );
     }
 
@@ -443,10 +443,10 @@ mod tests {
     fn test_let_mut_with_expr() {
         lisp!(block
             (let mut x (+ 1 2))
-            (assert eq 3 x)
+            (macro! assert_eq 3 x)
 
             (let mut (y i32) (* 3 4))
-            (assert eq 12 y)
+            (macro! assert_eq 12 y)
         );
     }
 }

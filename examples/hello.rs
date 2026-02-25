@@ -3,9 +3,9 @@
 
 use macro_lisp::lisp;
 
-lisp!(pub module module_test
+lisp!(pub mod module_test
     (pub fn hello () ()
-        (println "Hello, macro-lisp!")
+        (macro! println "Hello, macro-lisp!")
     )
 );
 

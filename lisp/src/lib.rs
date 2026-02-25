@@ -48,8 +48,6 @@
 //! | `(let ((x init)...) (body)...)` | `{ let mut x = init; ... body }` |
 //! | `(= var (expr))` | `var = expr;` |
 //! | `(= var val)` | `var = val;` |
-//! | `(set var (expr))` | `var = expr;` |
-//! | `(set var val)` | `var = val;` |
 //! | `(+= var e)` | `var += e;` |
 //! | `(-= var e)` | `var -= e;` |
 //! | `(*= var e)` | `var *= e;` |
@@ -91,8 +89,6 @@
 //! | `(if let (Pat = e) then)` | `if let Pat = e { then }` |
 //! | `(if (cond) then else)` | `if cond { then } else { else }` |
 //! | `(if cond then else)` | `if cond { then } else { else }` |
-//! | `(when cond expr)` | `if cond { expr }` |
-//! | `(unless cond expr)` | `if !cond { expr }` |
 //!
 //! ## Imports & Modules
 //! | S-expression | Rust output |
@@ -101,8 +97,7 @@
 //! | `(use path::to::item)` | `use path::to::item;` |
 //! | `(pub mod name (body)...)` | `pub mod name { body }` |
 //! | `(mod name (body)...)` | `mod name { body }` |
-//! | `(pub module name (body)...)` | `pub mod name { body }` |
-//! | `(module name (body)...)` | `mod name { body }` |
+
 //!
 //! ## Functions & Closures
 //! | S-expression | Rust output |
@@ -141,21 +136,14 @@
 //! ## Assertions & Output
 //! | S-expression | Rust output |
 //! |---|---|
-//! | `(assert eq x y)` | `assert_eq!(x, y);` |
-//! | `(debug assert eq x y)` | `debug_assert_eq!(x, y);` |
-//! | `(debug assert x msg)` | `debug_assert!(x, msg);` |
-//! | `(assert x msg)` | `assert!(x, msg);` |
-//! | `(print fmt args...)` | `print!(fmt, args...)` |
-//! | `(println fmt args...)` | `println!(fmt, args...)` |
-//! | `(format fmt args...)` | `format!(fmt, args...)` |
+
 //! | `(panic args...)` | `panic!(args...)` |
 //! | `(macro! name args...)` | `name!(args...)` |
 //!
 //! ## Logical Operators
 //! | S-expression | Rust output |
 //! |---|---|
-//! | `(and a b ...)` | `a && b && ...` |
-//! | `(or a b ...)` | `a \|\| b \|\| ...` |
+
 //! | `(&& a b)` | `a && b` |
 //! | `(\|\| a b)` | `a \|\| b` |
 //! | `(! x)` | `!x` |
@@ -187,8 +175,7 @@
 //! | `(deref x)` | `*x` |
 //! | `(as x Type)` | `x as Type` |
 //! | `(? x)` | `x?` |
-//! | `(range a b)` | `a..b` |
-//! | `(range= a b)` | `a..=b` |
+
 //! | `(.. a b)` | `a..b` |
 //! | `(..= a b)` | `a..=b` |
 //! | `(.. a)` | `a..` |
@@ -196,11 +183,9 @@
 //! | `(index coll key)` | `coll[key]` |
 //! | `(. obj field)` | `obj.field` |
 //! | `(. obj a b c)` | `obj.a.b.c` |
-//! | `(field obj name)` | `obj.name` |
+
 //! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` |
-//! | `(new Name (f1 v1)...)` | `Name { f1: v1, ... }` |
-//! | `(box x)` | `Box::new(x)` |
-//! | `(len x)` | `x.len()` |
+
 //! | `(tuple a b c)` | `(a, b, c)` |
 //! | `(tuple a)` | `(a,)` |
 //! | `(tuple)` | `()` |
@@ -498,11 +483,6 @@ macro_rules! lisp {
 
     // ── Assignment ───────────────────────────────────────────
 
-    // DEPRECATED: use `(= var val)` instead
-    // set
-    (set $var:ident ( $($e:tt)+ )) => ($var = $crate::lisp!($($e)+););
-    (set $var:ident $e:expr) => ($var = $e;);
-
     // = assignment
     (= $var:ident ( $($e:tt)+ )) => ($var = $crate::lisp!($($e)+););
     (= $var:ident $e:expr) => ($var = $e;);
@@ -573,14 +553,6 @@ macro_rules! lisp {
     (if $cond:tt $e1:tt $e2:tt) => (if $cond { $crate::lisp_arg!($e1) }else{ $crate::lisp_arg!($e2) });
     (if $cond:tt $e:tt) => (if $cond { $crate::lisp_arg!($e) });
 
-    // DEPRECATED: use `(if cond body)` instead
-    // when, unless
-    (when ( $($cond:tt)* ) $e:tt) => (if $crate::lisp!($($cond)*) { $crate::lisp_arg!($e) });
-    (when $cond:tt $e:tt) => (if $cond { $crate::lisp_arg!($e) });
-    // DEPRECATED: use `(if (! cond) body)` instead
-    (unless ( $($cond:tt)* ) $e:tt) => (if ! ($crate::lisp!($($cond)*)) { $crate::lisp_arg!($e) });
-    (unless $cond:tt $e:tt) => (if !($cond) { $crate::lisp_arg!($e) });
-
     // ── Imports & Modules ────────────────────────────────────
 
     // extern crate
@@ -588,25 +560,6 @@ macro_rules! lisp {
 
     // use
     (use $sym:tt $(:: $sym2:tt)* ) => (use $sym $(:: $sym2)* ;);
-
-    // DEPRECATED: use `(mod name ...)` instead
-    // module
-    ( $(#[$m:meta])* pub module $sym:ident
-        $( ( $($e:tt)* ))*
-     ) => (
-         $(#[$m]);*
-         pub mod $sym {
-             $( $crate::lisp!( $($e)* ); )*
-         }
-    );
-    ( $(#[$m:meta])* module $sym:ident
-        $( ( $($e:tt)* ))*
-     ) => (
-         $(#[$m]);*
-         mod $sym {
-             $( $crate::lisp!( $($e)* ); )*
-         }
-    );
 
     // mod (alias for module)
     ( $(#[$m:meta])* pub mod $sym:ident
@@ -798,32 +751,10 @@ macro_rules! lisp {
     (<= $x:tt $y:tt) => ($crate::lisp_arg!($x) <= $crate::lisp_arg!($y));
     (>= $x:tt $y:tt) => ($crate::lisp_arg!($x) >= $crate::lisp_arg!($y));
 
-    // ── Assertions ───────────────────────────────────────────
-    // DEPRECATED: use `(macro! assert_eq ...)` instead
-    (assert eq $e1:tt $e2:tt) => ( assert_eq!($crate::lisp_arg!($e1), $crate::lisp_arg!($e2)); );
-    // DEPRECATED: use `(macro! debug_assert_eq ...)` instead
-    (debug assert eq $e1:tt $e2:tt) => ( debug_assert_eq!($crate::lisp_arg!($e1), $crate::lisp_arg!($e2)); );
-    // DEPRECATED: use `(macro! debug_assert ...)` instead
-    (debug assert $e1:tt $e2:tt) => ( debug_assert!($crate::lisp_arg!($e1), $crate::lisp_arg!($e2)); );
-    // DEPRECATED: use `(macro! assert ...)` instead
-    (assert $e1:tt $e2:tt) => ( assert!($e1, $e2); );
-
     // ── Output ───────────────────────────────────────────────
-    // DEPRECATED: use `(macro! print ...)` instead
-    (print $( $e:tt )+) => ( print!( $($e),+ ) );
-    // DEPRECATED: use `(macro! println ...)` instead
-    (println $( $e:tt )+) => ( println!( $($e),+ ) );
-    // DEPRECATED: use `(macro! format ...)` instead
-    (format $( $e:tt )+) => ( format!( $($e),+ ) );
     (panic $($arg:tt)+ ) => ( panic!( $($arg)+ ); );
 
     // ── Logical ──────────────────────────────────────────────
-    // DEPRECATED: use `(&& a b)` instead
-    (and $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(and {$crate::lisp_arg!($a) && $crate::lisp_arg!($b)} $($rest)+));
-    (and $x:tt $y:tt) => ($crate::lisp_arg!($x) && $crate::lisp_arg!($y));
-    // DEPRECATED: use `(|| a b)` instead
-    (or $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(or {$crate::lisp_arg!($a) || $crate::lisp_arg!($b)} $($rest)+));
-    (or $x:tt $y:tt) => ($crate::lisp_arg!($x) || $crate::lisp_arg!($y));
     (! $e:tt) => ( ! $crate::lisp_arg!($e));
     (&& $x:tt $y:tt) => ($crate::lisp_arg!($x) && $crate::lisp_arg!($y));
     (|| $x:tt $y:tt) => ($crate::lisp_arg!($x) || $crate::lisp_arg!($y));
@@ -859,10 +790,6 @@ macro_rules! lisp {
     (? $e:tt) => ($crate::lisp_arg!($e)?);
 
     // ── Range ────────────────────────────────────────────────
-    // DEPRECATED: use `(.. a b)` instead
-    (range $a:tt $b:tt) => ($crate::lisp_arg!($a)..$crate::lisp_arg!($b));
-    // DEPRECATED: use `(..= a b)` instead
-    (range= $a:tt $b:tt) => ($crate::lisp_arg!($a)..=$crate::lisp_arg!($b));
     (.. $a:tt $b:tt) => ($crate::lisp_arg!($a)..$crate::lisp_arg!($b));
     (..= $a:tt $b:tt) => ($crate::lisp_arg!($a)..=$crate::lisp_arg!($b));
     (.. $a:tt) => ($crate::lisp_arg!($a)..);
@@ -872,23 +799,14 @@ macro_rules! lisp {
     (index $coll:tt $key:tt) => ($crate::lisp_arg!($coll)[$crate::lisp_arg!($key)]);
 
     // ── Field ────────────────────────────────────────────────
-    // DEPRECATED: use `(. obj name)` instead
-    (field $obj:tt $name:ident) => ($crate::lisp_arg!($obj).$name);
-
     // . field access (chained)
     (. $obj:tt $( $name:ident )+) => ($crate::lisp_arg!($obj) $(.$name)+);
 
     // ── Construction ─────────────────────────────────────────
-    // DEPRECATED: use `(struct-lit Name ...)` instead
-    (new $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
     // struct-lit (struct construction with hyphenated keyword)
     (struct - lit $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
-    // DEPRECATED: use `(Box::new x)` instead
-    (box $e:tt) => (Box::new($crate::lisp_arg!($e)));
 
     // ── Len ──────────────────────────────────────────────────
-    // DEPRECATED: use `(x.len)` instead
-    (len $e:tt) => ($crate::lisp_arg!($e).len());
 
     // ── Collections ──────────────────────────────────────────
     (tuple $single:tt) => (($crate::lisp_arg!($single),));

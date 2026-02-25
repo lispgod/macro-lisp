@@ -135,6 +135,32 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                         return quote! { #struct_name { #(#fields),* } };
                     }
                 }
+                "r#struct" | "struct" => {
+                    // (struct - lit Name (field val) ...)
+                    if tokens.len() >= 4
+                        && is_punct(&tokens[1], '-')
+                    {
+                        if let TokenTree::Ident(lit_id) = &tokens[2] {
+                            if lit_id.to_string() == "lit" {
+                                let struct_name = &tokens[3];
+                                let mut fields = Vec::new();
+                                for tt in &tokens[4..] {
+                                    if let TokenTree::Group(g) = tt {
+                                        if g.delimiter() == Delimiter::Parenthesis {
+                                            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                            if inner.len() >= 2 {
+                                                let fname = &inner[0];
+                                                let fval = eval_lisp_arg(&inner[1..]);
+                                                fields.push(quote! { #fname: #fval });
+                                            }
+                                        }
+                                    }
+                                }
+                                return quote! { #struct_name { #(#fields),* } };
+                            }
+                        }
+                    }
+                }
                 "macro" => {
                     // (macro! name args...) — but first token is `macro`, second is `!`
                     if tokens.len() >= 3 && is_punct(&tokens[1], '!') {

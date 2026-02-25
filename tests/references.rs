@@ -59,26 +59,26 @@ fn index_slice() {
 
 #[test]
 fn range_basic() {
-    let r = lisp!(range 0 5);
+    let r = lisp!(.. 0 5);
     let v: Vec<i32> = r.collect();
     assert_eq!(v, vec![0, 1, 2, 3, 4]);
 }
 
 #[test]
 fn range_inclusive() {
-    let r = lisp!(range= 1 5);
+    let r = lisp!(..= 1 5);
     let v: Vec<i32> = r.collect();
     assert_eq!(v, vec![1, 2, 3, 4, 5]);
 }
 
 #[test]
 fn box_basic() {
-    let b = lisp!(box 42);
+    let b = lisp!(Box::new 42);
     assert_eq!(*b, 42);
 }
 
 #[test]
 fn box_with_expr() {
-    let b = lisp!(box (+ 1 2));
+    let b = lisp!(Box::new (+ 1 2));
     assert_eq!(*b, 3);
 }
