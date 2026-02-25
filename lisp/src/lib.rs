@@ -210,88 +210,33 @@ macro_rules! lisp {
     (true) => (true);
     (self $(. $e:tt)* ) => (self $(. $e)* );
 
-    // ── Type & Item Definitions ──────────────────────────────
-
-    // pub(visibility) dispatch rules — pub(crate), pub(super), pub(in path) → proc macro
-    ( $(#[$m:meta])* pub ($($vis:tt)+) struct $($rest:tt)+ ) => (
-        $crate::lisp_struct!( $(#[$m])* pub ($($vis)+) struct $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) enum $($rest:tt)+ ) => (
-        $crate::lisp_enum!( $(#[$m])* pub ($($vis)+) enum $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) trait $($rest:tt)+ ) => (
-        $crate::lisp_trait!( pub ($($vis)+) $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) fn $($rest:tt)+ ) => (
-        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) fn $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) const fn $($rest:tt)+ ) => (
-        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) const fn $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) unsafe fn $($rest:tt)+ ) => (
-        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) unsafe fn $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) async fn $($rest:tt)+ ) => (
-        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) async fn $($rest)+ );
-    );
-    ( $(#[$m:meta])* pub ($($vis:tt)+) extern $abi:literal fn $($rest:tt)+ ) => (
-        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) extern $abi fn $($rest)+ );
-    );
-    (pub ($($vis:tt)+) const $name:ident $typ:ty = $val:expr) => (
-        pub($($vis)+) const $name: $typ = $val;
-    );
-    (pub ($($vis:tt)+) static mut $name:ident $typ:ty = $val:expr) => (
-        pub($($vis)+) static mut $name: $typ = $val;
-    );
-    (pub ($($vis:tt)+) static $name:ident $typ:ty = $val:expr) => (
-        pub($($vis)+) static $name: $typ = $val;
-    );
-    (pub ($($vis:tt)+) type $name:ident = $typ:ty) => (
-        pub($($vis)+) type $name = $typ;
-    );
-    (pub ($($vis:tt)+) mod $name:ident
-        $( ( $($e:tt)* ))*
-    ) => (
-        pub($($vis)+) mod $name {
-            #[allow(unused_imports)]
-            use super::*;
-            $( $crate::lisp!( $($e)* ); )*
-        }
-    );
+    // ── Type & Item Definitions (unified visibility via $vis:vis) ──
 
     // struct — dispatch all forms to proc macro
-    ( $(#[$m:meta])* pub struct $name:ident $($rest:tt)* ) => ( $crate::lisp_struct!($(#[$m])* pub struct $name $($rest)*); );
-    ( $(#[$m:meta])* struct $name:ident $($rest:tt)* ) => ( $crate::lisp_struct!($(#[$m])* struct $name $($rest)*); );
+    ( $(#[$m:meta])* $vis:vis struct $name:ident $($rest:tt)* ) => ( $crate::lisp_struct!($(#[$m])* $vis struct $name $($rest)*); );
 
     // enum (brace passthrough — legacy)
-    ( $(#[$m:meta])* pub enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* pub enum $name { $($body)* } );
-    ( $(#[$m:meta])* enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* enum $name { $($body)* } );
+    ( $(#[$m:meta])* $vis:vis enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* $vis enum $name { $($body)* } );
     // enum (S-expression variants — dispatched to proc macro)
-    ( $(#[$m:meta])* pub enum $name:ident < $($rest:tt)+ ) => ( $crate::lisp_enum!($(#[$m])* pub enum $name < $($rest)+); );
-    ( $(#[$m:meta])* enum $name:ident < $($rest:tt)+ ) => ( $crate::lisp_enum!($(#[$m])* enum $name < $($rest)+); );
-    ( $(#[$m:meta])* pub enum $name:ident $( ( $($variant:tt)+ ) )+ ) => ( $crate::lisp_enum!($(#[$m])* pub enum $name $( ( $($variant)+ ) )+); );
-    ( $(#[$m:meta])* enum $name:ident $( ( $($variant:tt)+ ) )+ ) => ( $crate::lisp_enum!($(#[$m])* enum $name $( ( $($variant)+ ) )+); );
+    ( $(#[$m:meta])* $vis:vis enum $name:ident < $($rest:tt)+ ) => ( $crate::lisp_enum!($(#[$m])* $vis enum $name < $($rest)+); );
+    ( $(#[$m:meta])* $vis:vis enum $name:ident $( ( $($variant:tt)+ ) )+ ) => ( $crate::lisp_enum!($(#[$m])* $vis enum $name $( ( $($variant)+ ) )+); );
 
     // trait — always dispatched to proc macro for proper fn handling
-    ( $(#[$m:meta])* pub trait $name:ident $($rest:tt)* ) => ( $crate::lisp_trait!(pub $name $($rest)*); );
-    ( $(#[$m:meta])* trait $name:ident $($rest:tt)* ) => ( $crate::lisp_trait!($name $($rest)*); );
+    ( $(#[$m:meta])* $vis:vis trait $name:ident $($rest:tt)* ) => ( $crate::lisp_trait!($vis $name $($rest)*); );
 
     // impl — always dispatched to proc macro for proper fn handling
     (impl $($tokens:tt)+) => ( $crate::lisp_impl!($($tokens)+); );
 
     // type alias
-    (pub type $name:ident = $target:ty) => (pub type $name = $target;);
-    (type $name:ident = $target:ty) => (type $name = $target;);
+    ($vis:vis type $name:ident = $target:ty) => ($vis type $name = $target;);
 
     // const fn — dispatch to proc macro (MUST precede const variable rules)
-    ( $(#[$m:meta])* pub const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub const fn $sym $($rest)+); );
-    ( $(#[$m:meta])* const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* const fn $sym $($rest)+); );
+    ( $(#[$m:meta])* $vis:vis const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis const fn $sym $($rest)+); );
 
-    // const and static
-    (pub const $name:ident $typ:ty = $val:expr) => (pub const $name: $typ = $val;);
-    (const $name:ident $typ:ty = $val:expr) => (const $name: $typ = $val;);
-    (static mut $name:ident $typ:ty = $val:expr) => (static mut $name: $typ = $val;);
-    (static $name:ident $typ:ty = $val:expr) => (static $name: $typ = $val;);
+    // const and static (with = separator)
+    ($vis:vis const $name:ident $typ:ty = $val:expr) => ($vis const $name: $typ = $val;);
+    ($vis:vis static mut $name:ident $typ:ty = $val:expr) => ($vis static mut $name: $typ = $val;);
+    ($vis:vis static $name:ident $typ:ty = $val:expr) => ($vis static $name: $typ = $val;);
 
     // const/static (without = separator)
     (const $name:ident $typ:tt $val:tt) => (const $name: $typ = $crate::lisp_arg!($val););
@@ -419,20 +364,12 @@ macro_rules! lisp {
     // use
     (use $sym:tt $(:: $sym2:tt)* ) => (use $sym $(:: $sym2)* ;);
 
-    // mod (alias for module)
-    ( $(#[$m:meta])* pub mod $sym:ident
+    // mod — unified visibility
+    ( $(#[$m:meta])* $vis:vis mod $sym:ident
         $( ( $($e:tt)* ))*
      ) => (
          $(#[$m]);*
-         pub mod $sym {
-             $( $crate::lisp!( $($e)* ); )*
-         }
-    );
-    ( $(#[$m:meta])* mod $sym:ident
-        $( ( $($e:tt)* ))*
-     ) => (
-         $(#[$m]);*
-         mod $sym {
+         $vis mod $sym {
              $( $crate::lisp!( $($e)* ); )*
          }
     );
@@ -459,17 +396,13 @@ macro_rules! lisp {
         $( ( $($e:tt)* ))*
     ) => (| $($name : $typ),* |{ $( $crate::lisp!( $($e)* ) );* });
 
-    // ── Named Functions (unified dispatch to proc macro) ─────
-    // All modifier × return-type combinations collapse into one dispatch rule per modifier set.
+    // ── Named Functions (unified visibility + modifier dispatch to proc macro) ─
     // Closures above are matched first since they start with `fn (` not `fn $name`.
-    ( $(#[$m:meta])* pub unsafe fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub unsafe fn $sym $($rest)+); );
-    ( $(#[$m:meta])* pub async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub async fn $sym $($rest)+); );
-    ( $(#[$m:meta])* pub extern $abi:literal fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub extern $abi fn $sym $($rest)+); );
-    ( $(#[$m:meta])* pub fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* pub fn $sym $($rest)+); );
-    ( $(#[$m:meta])* unsafe fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* unsafe fn $sym $($rest)+); );
-    ( $(#[$m:meta])* async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* async fn $sym $($rest)+); );
-    ( $(#[$m:meta])* extern $abi:literal fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* extern $abi fn $sym $($rest)+); );
-    ( $(#[$m:meta])* fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* fn $sym $($rest)+); );
+    // $vis:vis collapses pub / pub(crate) / pub(super) / empty into one rule per qualifier.
+    ( $(#[$m:meta])* $vis:vis unsafe fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis unsafe fn $sym $($rest)+); );
+    ( $(#[$m:meta])* $vis:vis async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis async fn $sym $($rest)+); );
+    ( $(#[$m:meta])* $vis:vis extern $abi:literal fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis extern $abi fn $sym $($rest)+); );
+    ( $(#[$m:meta])* $vis:vis fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis fn $sym $($rest)+); );
 
     // ── Return ───────────────────────────────────────────────
     (return ( $($e:tt)+ )) => (return $crate::lisp!($($e)+));
