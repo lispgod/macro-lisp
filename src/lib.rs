@@ -14,6 +14,7 @@
 //! |---|---|
 //! | `(struct Name ((field Type)...))` | `struct Name { field: Type, ... }` |
 //! | `(pub struct Name ((field Type)...))` | `pub struct Name { field: Type, ... }` |
+//! | `(struct Name (Type1 Type2))` | `struct Name(Type1, Type2);` (tuple struct) |
 //! | `(enum Name { variants })` | `enum Name { variants }` |
 //! | `(pub enum Name { variants })` | `pub enum Name { variants }` |
 //! | `(trait Name (fn-decl)...)` | `trait Name { fn-decl... }` |
@@ -23,9 +24,12 @@
 //! | `(type Name = Target)` | `type Name = Target;` |
 //! | `(pub type Name = Target)` | `pub type Name = Target;` |
 //! | `(const NAME Type = val)` | `const NAME: Type = val;` |
+//! | `(const NAME Type val)` | `const NAME: Type = val;` |
 //! | `(pub const NAME Type = val)` | `pub const NAME: Type = val;` |
 //! | `(static NAME Type = val)` | `static NAME: Type = val;` |
+//! | `(static NAME Type val)` | `static NAME: Type = val;` |
 //! | `(static mut NAME Type = val)` | `static mut NAME: Type = val;` |
+//! | `(static mut NAME Type val)` | `static mut NAME: Type = val;` |
 //!
 //! ## Pattern Matching
 //! | S-expression | Rust output |
@@ -42,6 +46,8 @@
 //! | `(let var (expr))` | `let var = expr;` |
 //! | `(let var val)` | `let var = val;` |
 //! | `(let ((x init)...) (body)...)` | `{ let mut x = init; ... body }` |
+//! | `(= var (expr))` | `var = expr;` |
+//! | `(= var val)` | `var = val;` |
 //! | `(set var (expr))` | `var = expr;` |
 //! | `(set var val)` | `var = val;` |
 //! | `(+= var e)` | `var += e;` |
@@ -49,21 +55,34 @@
 //! | `(*= var e)` | `var *= e;` |
 //! | `(/= var e)` | `var /= e;` |
 //! | `(%= var e)` | `var %= e;` |
+//! | `(&= var e)` | `var &= e;` |
+//! | `(\|= var e)` | `var \|= e;` |
+//! | `(^= var e)` | `var ^= e;` |
+//! | `(<<= var e)` | `var <<= e;` |
+//! | `(>>= var e)` | `var >>= e;` |
 //!
 //! ## Block
 //! | S-expression | Rust output |
 //! |---|---|
 //! | `(block (stmt)...)` | `{ stmt; ... }` |
+//! | `(block 'label (stmt)...)` | `'label: { stmt; ... }` |
 //!
 //! ## Loops
 //! | S-expression | Rust output |
 //! |---|---|
 //! | `(break)` | `break;` |
+//! | `(break expr)` | `break expr;` |
+//! | `(break 'label)` | `break 'label;` |
+//! | `(break 'label expr)` | `break 'label expr;` |
 //! | `(continue)` | `continue;` |
+//! | `(continue 'label)` | `continue 'label;` |
 //! | `(loop (body)...)` | `loop { body }` |
+//! | `('label loop (body)...)` | `'label: loop { body }` |
 //! | `(while let (Pat = e) (body)...)` | `while let Pat = e { body }` |
 //! | `(while cond (body)...)` | `while cond { body }` |
+//! | `('label while cond (body)...)` | `'label: while cond { body }` |
 //! | `(for var in iter (body)...)` | `for var in iter { body }` |
+//! | `('label for var in iter (body)...)` | `'label: for var in iter { body }` |
 //!
 //! ## Conditionals
 //! | S-expression | Rust output |
@@ -80,6 +99,8 @@
 //! |---|---|
 //! | `(extern crate name)` | `extern crate name;` |
 //! | `(use path::to::item)` | `use path::to::item;` |
+//! | `(pub mod name (body)...)` | `pub mod name { body }` |
+//! | `(mod name (body)...)` | `mod name { body }` |
 //! | `(pub module name (body)...)` | `pub mod name { body }` |
 //! | `(module name (body)...)` | `mod name { body }` |
 //!
@@ -91,6 +112,12 @@
 //! | `(async fn name ((x T)) Ret (body))` | `async fn name(x: T) -> Ret { body }` |
 //! | `(pub fn name ((x T)) Ret (body))` | `pub fn name(x: T) -> Ret { body }` |
 //! | `(fn name ((x T)) Ret (body))` | `fn name(x: T) -> Ret { body }` |
+//! | `(const fn name ((x T)) Ret (body))` | `const fn name(x: T) -> Ret { body }` |
+//! | `(unsafe fn name ((x T)) Ret (body))` | `unsafe fn name(x: T) -> Ret { body }` |
+//! | `(extern "C" fn name ((x T)) Ret (body))` | `extern "C" fn name(x: T) -> Ret { body }` |
+//! | `(pub const fn name ((x T)) Ret (body))` | `pub const fn name(x: T) -> Ret { body }` |
+//! | `(pub unsafe fn name ((x T)) Ret (body))` | `pub unsafe fn name(x: T) -> Ret { body }` |
+//! | `(pub extern "C" fn name ((x T)) Ret (body))` | `pub extern "C" fn name(x: T) -> Ret { body }` |
 //!
 //! ## Control Flow
 //! | S-expression | Rust output |
@@ -122,12 +149,15 @@
 //! | `(println fmt args...)` | `println!(fmt, args...)` |
 //! | `(format fmt args...)` | `format!(fmt, args...)` |
 //! | `(panic args...)` | `panic!(args...)` |
+//! | `(macro! name args...)` | `name!(args...)` |
 //!
 //! ## Logical Operators
 //! | S-expression | Rust output |
 //! |---|---|
 //! | `(and a b ...)` | `a && b && ...` |
 //! | `(or a b ...)` | `a \|\| b \|\| ...` |
+//! | `(&& a b)` | `a && b` |
+//! | `(\|\| a b)` | `a \|\| b` |
 //! | `(! x)` | `!x` |
 //!
 //! ## Arithmetic
@@ -138,6 +168,16 @@
 //! | `(* a b ...)` | `a * b * ...` |
 //! | `(/ a b ...)` | `a / b / ...` |
 //! | `(% a b)` | `a % b` |
+//! | `(neg x)` | `-x` |
+//!
+//! ## Bitwise Operators
+//! | S-expression | Rust output |
+//! |---|---|
+//! | `(& a b)` | `a & b` |
+//! | `(\| a b)` | `a \| b` |
+//! | `(^ a b)` | `a ^ b` |
+//! | `(<< a b)` | `a << b` |
+//! | `(>> a b)` | `a >> b` |
 //!
 //! ## References, Casting & Misc
 //! | S-expression | Rust output |
@@ -149,14 +189,26 @@
 //! | `(? x)` | `x?` |
 //! | `(range a b)` | `a..b` |
 //! | `(range= a b)` | `a..=b` |
+//! | `(.. a b)` | `a..b` |
+//! | `(..= a b)` | `a..=b` |
+//! | `(.. a)` | `a..` |
+//! | `(..)` | `..` |
 //! | `(index coll key)` | `coll[key]` |
+//! | `(. obj field)` | `obj.field` |
+//! | `(. obj a b c)` | `obj.a.b.c` |
 //! | `(field obj name)` | `obj.name` |
+//! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` |
 //! | `(new Name (f1 v1)...)` | `Name { f1: v1, ... }` |
 //! | `(box x)` | `Box::new(x)` |
 //! | `(len x)` | `x.len()` |
 //! | `(tuple a b c)` | `(a, b, c)` |
+//! | `(tuple a)` | `(a,)` |
+//! | `(tuple)` | `()` |
+//! | `(array 1 2 3)` | `[1, 2, 3]` |
+//! | `(array-repeat 0 10)` | `[0; 10]` |
 //! | `(vec a b c)` | `vec![a, b, c]` |
 //! | `(val x)` | `x` |
+//! | `(rust { code })` | `code` |
 //! | `(rust stmt...)` | `stmt; ...` |
 //! | `(path::func args...)` | `path::func(args...)` |
 //! | `(obj.method args...)` | `obj.method(args...)` |
@@ -303,6 +355,35 @@ macro_rules! lisp {
         struct $struct_name;
     );
 
+    // pub struct (tuple, with generics)
+    ( $(#[$m:meta])* pub struct $struct_name:ident < $($generic:ident),+ >
+        ( $( $typ:ty )* )
+    ) => (
+        $(#[$m]);*
+        pub struct $struct_name < $($generic),+ > ( $($typ),* );
+    );
+    // pub struct (tuple, no generics)
+    ( $(#[$m:meta])* pub struct $struct_name:ident
+        ( $( $typ:ty )* )
+    ) => (
+        $(#[$m]);*
+        pub struct $struct_name ( $($typ),* );
+    );
+    // struct (tuple, with generics)
+    ( $(#[$m:meta])* struct $struct_name:ident < $($generic:ident),+ >
+        ( $( $typ:ty )* )
+    ) => (
+        $(#[$m]);*
+        struct $struct_name < $($generic),+ > ( $($typ),* );
+    );
+    // struct (tuple, no generics)
+    ( $(#[$m:meta])* struct $struct_name:ident
+        ( $( $typ:ty )* )
+    ) => (
+        $(#[$m]);*
+        struct $struct_name ( $($typ),* );
+    );
+
     // enum
     ( $(#[$m:meta])* pub enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* pub enum $name { $($body)* } );
     ( $(#[$m:meta])* enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* enum $name { $($body)* } );
@@ -319,11 +400,54 @@ macro_rules! lisp {
     (pub type $name:ident = $target:ty) => (pub type $name = $target;);
     (type $name:ident = $target:ty) => (type $name = $target;);
 
+    // const fn (MUST come before const variable to avoid :ident matching `fn` keyword)
+    // const fn & return
+    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        const fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // const fn & void
+    ( $(#[$m:meta])* const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        const fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // pub const fn & return
+    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub const fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // pub const fn & void
+    ( $(#[$m:meta])* pub const fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub const fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+
     // const and static
     (pub const $name:ident $typ:ty = $val:expr) => (pub const $name: $typ = $val;);
     (const $name:ident $typ:ty = $val:expr) => (const $name: $typ = $val;);
     (static mut $name:ident $typ:ty = $val:expr) => (static mut $name: $typ = $val;);
     (static $name:ident $typ:ty = $val:expr) => (static $name: $typ = $val;);
+
+    // const/static (without = separator)
+    (const $name:ident $typ:tt $val:tt) => (const $name: $typ = $crate::lisp_arg!($val););
+    (static mut $name:ident $typ:tt $val:tt) => (static mut $name: $typ = $crate::lisp_arg!($val););
+    (static $name:ident $typ:tt $val:tt) => (static $name: $typ = $crate::lisp_arg!($val););
 
     // ── Match ────────────────────────────────────────────────
     (match $e:tt $( ( $pattern:pat_param $(| $pat2:pat_param)* => ( $($e2:tt)* ) ) )* ) => (
@@ -360,19 +484,40 @@ macro_rules! lisp {
     (set $var:ident ( $($e:tt)+ )) => ($var = $crate::lisp!($($e)+););
     (set $var:ident $e:expr) => ($var = $e;);
 
+    // = assignment
+    (= $var:ident ( $($e:tt)+ )) => ($var = $crate::lisp!($($e)+););
+    (= $var:ident $e:expr) => ($var = $e;);
+
     // compound assignment
     (+= $var:ident $e:tt) => ($var += $crate::lisp_arg!($e););
     (-= $var:ident $e:tt) => ($var -= $crate::lisp_arg!($e););
     (*= $var:ident $e:tt) => ($var *= $crate::lisp_arg!($e););
     (/= $var:ident $e:tt) => ($var /= $crate::lisp_arg!($e););
     (%= $var:ident $e:tt) => ($var %= $crate::lisp_arg!($e););
+    (&= $var:ident $e:tt) => ($var &= $crate::lisp_arg!($e););
+    (|= $var:ident $e:tt) => ($var |= $crate::lisp_arg!($e););
+    (^= $var:ident $e:tt) => ($var ^= $crate::lisp_arg!($e););
+    (<<= $var:ident $e:tt) => ($var <<= $crate::lisp_arg!($e););
+    (>>= $var:ident $e:tt) => ($var >>= $crate::lisp_arg!($e););
 
     // ── Block ────────────────────────────────────────────────
+    (block $l:lifetime $( ( $($e:tt)* ) )* ) => ($l: { $( $crate::lisp!($($e)*) );* });
     (block $( ( $($e:tt)* ) )* ) => ({ $( $crate::lisp!($($e)*) );* });
 
     // ── Loops ────────────────────────────────────────────────
+    (break $l:lifetime $e:tt) => (break $l $crate::lisp_arg!($e););
+    (break $l:lifetime) => (break $l;);
+    (break $e:tt) => (break $crate::lisp_arg!($e););
     (break) => (break;);
+    (continue $l:lifetime) => (continue $l;);
     (continue) => (continue;);
+
+    // labeled loops
+    ($l:lifetime loop $( ( $($e:tt)* ) )* ) => ( $l: loop { $( $crate::lisp!( $($e)* ) );* });
+    ($l:lifetime while let ( $pattern:pat = $($cond:tt)* ) $( ( $($e:tt)* ) )* ) => ( $l: while let $pattern = $crate::lisp_arg!($($cond)*) { $( $crate::lisp!($($e)*) );* });
+    ($l:lifetime while $cond:tt $( ( $($e:tt)* ) )* ) => ( $l: while $crate::lisp_arg!($cond) { $( $crate::lisp!( $($e)* ) );* });
+    ($l:lifetime for $var:ident in $iter:tt $( ( $($e:tt)* ) )* ) => ( $l: for $var in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
+
     (loop $( ( $($e:tt)* ) )* ) => ( loop { $( $crate::lisp!( $($e)* ) );* });
 
     // while let (BEFORE while)
@@ -428,7 +573,63 @@ macro_rules! lisp {
          }
     );
 
+    // mod (alias for module)
+    ( $(#[$m:meta])* pub mod $sym:ident
+        $( ( $($e:tt)* ))*
+     ) => (
+         $(#[$m]);*
+         pub mod $sym {
+             $( $crate::lisp!( $($e)* ); )*
+         }
+    );
+    ( $(#[$m:meta])* mod $sym:ident
+        $( ( $($e:tt)* ))*
+     ) => (
+         $(#[$m]);*
+         mod $sym {
+             $( $crate::lisp!( $($e)* ); )*
+         }
+    );
+
     // ── Functions & Closures ─────────────────────────────────
+
+    // pub unsafe fn & return
+    ( $(#[$m:meta])* pub unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub unsafe fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // pub unsafe fn & void
+    ( $(#[$m:meta])* pub unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub unsafe fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+
+    // pub extern fn & return
+    ( $(#[$m:meta])* pub extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub extern $abi fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // pub extern fn & void
+    ( $(#[$m:meta])* pub extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        pub extern $abi fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
 
     // closure (fn move)
     (fn move ( $( ( $name:ident $typ:ty ) )* )
@@ -503,6 +704,42 @@ macro_rules! lisp {
     (return) => (return);
 
     // ── Unsafe ───────────────────────────────────────────────
+    // unsafe fn & return
+    ( $(#[$m:meta])* unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        unsafe fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // unsafe fn & void
+    ( $(#[$m:meta])* unsafe fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        unsafe fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // extern fn & return
+    ( $(#[$m:meta])* extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* ) $return_type:tt
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        extern $abi fn $sym( $($name : $typ),* ) -> $return_type {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
+    // extern fn & void
+    ( $(#[$m:meta])* extern $abi:literal fn $sym:ident ( $( ( $name:ident $typ:ty ) )* )
+        $( ( $($e:tt)* ))*
+    ) => (
+        $(#[$m]);*
+        extern $abi fn $sym( $($name : $typ),* ) {
+            $( $crate::lisp!( $($e)* ) );*
+        }
+    );
     (unsafe $( ( $($e:tt)* ) )* ) => (unsafe { $( $crate::lisp!($($e)*) );* });
 
     // ── Await ────────────────────────────────────────────────
@@ -534,6 +771,8 @@ macro_rules! lisp {
     (or $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(or {$crate::lisp_arg!($a) || $crate::lisp_arg!($b)} $($rest)+));
     (or $x:tt $y:tt) => ($crate::lisp_arg!($x) || $crate::lisp_arg!($y));
     (! $e:tt) => ( ! $crate::lisp_arg!($e));
+    (&& $x:tt $y:tt) => ($crate::lisp_arg!($x) && $crate::lisp_arg!($y));
+    (|| $x:tt $y:tt) => ($crate::lisp_arg!($x) || $crate::lisp_arg!($y));
 
     // ── Arithmetic ───────────────────────────────────────────
     (+ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(+ {$crate::lisp_arg!($a) + $crate::lisp_arg!($b)} $($rest)+));
@@ -545,6 +784,16 @@ macro_rules! lisp {
     (/ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(/ {$crate::lisp_arg!($a) / $crate::lisp_arg!($b)} $($rest)+));
     (/ $x:tt $y:tt) => ($crate::lisp_arg!($x) / $crate::lisp_arg!($y));
     (% $x:tt $y:tt) => ($crate::lisp_arg!($x) % $crate::lisp_arg!($y));
+
+    // ── Negation ─────────────────────────────────────────────
+    (neg $e:tt) => (- $crate::lisp_arg!($e));
+
+    // ── Bitwise ──────────────────────────────────────────────
+    (& $a:tt $b:tt) => ($crate::lisp_arg!($a) & $crate::lisp_arg!($b));
+    (| $a:tt $b:tt) => ($crate::lisp_arg!($a) | $crate::lisp_arg!($b));
+    (^ $a:tt $b:tt) => ($crate::lisp_arg!($a) ^ $crate::lisp_arg!($b));
+    (<< $a:tt $b:tt) => ($crate::lisp_arg!($a) << $crate::lisp_arg!($b));
+    (>> $a:tt $b:tt) => ($crate::lisp_arg!($a) >> $crate::lisp_arg!($b));
 
     // ── References & Casting ─────────────────────────────────
     (ref mut $e:tt) => (&mut $crate::lisp_arg!($e));
@@ -558,6 +807,10 @@ macro_rules! lisp {
     // ── Range ────────────────────────────────────────────────
     (range $a:tt $b:tt) => ($crate::lisp_arg!($a)..$crate::lisp_arg!($b));
     (range= $a:tt $b:tt) => ($crate::lisp_arg!($a)..=$crate::lisp_arg!($b));
+    (.. $a:tt $b:tt) => ($crate::lisp_arg!($a)..$crate::lisp_arg!($b));
+    (..= $a:tt $b:tt) => ($crate::lisp_arg!($a)..=$crate::lisp_arg!($b));
+    (.. $a:tt) => ($crate::lisp_arg!($a)..);
+    (..) => (..);
 
     // ── Index ────────────────────────────────────────────────
     (index $coll:tt $key:tt) => ($crate::lisp_arg!($coll)[$crate::lisp_arg!($key)]);
@@ -565,22 +818,34 @@ macro_rules! lisp {
     // ── Field ────────────────────────────────────────────────
     (field $obj:tt $name:ident) => ($crate::lisp_arg!($obj).$name);
 
+    // . field access (chained)
+    (. $obj:tt $( $name:ident )+) => ($crate::lisp_arg!($obj) $(.$name)+);
+
     // ── Construction ─────────────────────────────────────────
     (new $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
+    // struct-lit (struct construction with hyphenated keyword)
+    (struct - lit $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
     (box $e:tt) => (Box::new($crate::lisp_arg!($e)));
 
     // ── Len ──────────────────────────────────────────────────
     (len $e:tt) => ($crate::lisp_arg!($e).len());
 
     // ── Collections ──────────────────────────────────────────
+    (tuple $single:tt) => (($crate::lisp_arg!($single),));
     (tuple $($e:tt)* ) => ( ($($crate::lisp_arg!($e)),*) );
     (vec $($e:tt)* ) => ( vec![$($crate::lisp_arg!($e)),*] );
+    (array - repeat $val:tt $count:tt) => ( [$crate::lisp_arg!($val); $crate::lisp_arg!($count)] );
+    (array $($e:tt)* ) => ( [$($crate::lisp_arg!($e)),*] );
 
     // ── Val ──────────────────────────────────────────────────
     (val $e:tt) => ($crate::lisp_arg!($e));
 
     // ── Rust escape ──────────────────────────────────────────
+    (rust { $($t:tt)* }) => ({ $($t)* });
     (rust $( $st:stmt )* ) => ( $($st);* );
+
+    // ── Macro invocation ─────────────────────────────────────
+    (macro ! $name:ident $(:: $name2:ident)* $($args:tt)*) => ($name $(:: $name2)* ! ($($crate::lisp_arg!($args)),*));
 
     // ── Catch-all ────────────────────────────────────────────
     ( $sym:ident $(:: $sym2:ident )+ $( $e:tt )* ) => ( $sym $(:: $sym2 )+ ( $($crate::lisp_arg!($e)),* ) );
