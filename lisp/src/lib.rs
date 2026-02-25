@@ -211,6 +211,47 @@ macro_rules! lisp {
 
     // ── Type & Item Definitions ──────────────────────────────
 
+    // pub(visibility) dispatch rules — pub(crate), pub(super), pub(in path) → proc macro
+    ( $(#[$m:meta])* pub ($($vis:tt)+) struct $($rest:tt)+ ) => (
+        $crate::lisp_struct!( $(#[$m])* pub ($($vis)+) struct $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) enum $($rest:tt)+ ) => (
+        $crate::lisp_enum!( $(#[$m])* pub ($($vis)+) enum $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) trait $($rest:tt)+ ) => (
+        $crate::lisp_trait!( pub ($($vis)+) $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) fn $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) const fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) const fn $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) unsafe fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) unsafe fn $($rest)+ );
+    );
+    (pub ($($vis:tt)+) const $name:ident $typ:ty = $val:expr) => (
+        pub($($vis)+) const $name: $typ = $val;
+    );
+    (pub ($($vis:tt)+) static mut $name:ident $typ:ty = $val:expr) => (
+        pub($($vis)+) static mut $name: $typ = $val;
+    );
+    (pub ($($vis:tt)+) static $name:ident $typ:ty = $val:expr) => (
+        pub($($vis)+) static $name: $typ = $val;
+    );
+    (pub ($($vis:tt)+) type $name:ident = $typ:ty) => (
+        pub($($vis)+) type $name = $typ;
+    );
+    (pub ($($vis:tt)+) mod $name:ident
+        $( ( $($e:tt)* ))*
+    ) => (
+        pub($($vis)+) mod $name {
+            #[allow(unused_imports)]
+            use super::*;
+            $( $crate::lisp!( $($e)* ); )*
+        }
+    );
+
     // pub struct (with generics, pub + private fields)
     ( $(#[$m:meta])* pub struct $struct_name:ident < $($generic:ident),+ >
         (pub $( ($name:ident $typ:ty) )* )
@@ -820,6 +861,10 @@ macro_rules! lisp {
     // ── Construction ─────────────────────────────────────────
     // struct-lit (struct construction with hyphenated keyword)
     (struct - lit $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
+    // struct-lit with spread (.. base)
+    (struct - lit $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
+    // struct-lit with field shorthand only (bare idents)
+    (struct - lit $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
 
     // ── Len ──────────────────────────────────────────────────
 
