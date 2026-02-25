@@ -1,7 +1,19 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Delimiter, TokenTree, Spacing, Punct, Span};
+use proc_macro_error2::{abort, proc_macro_error};
 use quote::quote;
+
+// ─── Debug: pretty-print generated code when `debug-expansion` feature is enabled ───
+#[cfg(feature = "debug-expansion")]
+fn debug_expansion(label: &str, output: &TokenStream2) {
+    if let Ok(file) = syn::parse_file(&output.to_string()) {
+        eprintln!("=== {} expansion ===\n{}", label, prettyplease::unparse(&file));
+    }
+}
+
+#[cfg(not(feature = "debug-expansion"))]
+fn debug_expansion(_label: &str, _output: &TokenStream2) {}
 
 // ─── Helper: flatten invisible delimiter groups ─────────────────────────────
 // macro_rules! wraps captured fragments ($vis:vis, $expr:expr, etc.) in
@@ -62,6 +74,42 @@ fn is_literal_like(tt: &TokenTree) -> bool {
     }
 }
 
+// ─── Helper: validate a token stream as a Rust type using syn::Type ───
+// Returns the validated type tokens. Aborts with a helpful error if invalid.
+fn validate_type(tokens: TokenStream2, _span: Span) -> TokenStream2 {
+    match syn::parse2::<syn::Type>(tokens.clone()) {
+        Ok(ty) => quote! { #ty },
+        Err(_) => {
+            // Fall back to raw tokens — some DSL type forms may not parse as syn::Type
+            // but are still valid in context (e.g., when macro_rules expands them later).
+            tokens
+        }
+    }
+}
+
+// ─── Helper: validate a token stream as a Rust pattern using syn::Pat ───
+fn validate_pattern(tokens: TokenStream2, _span: Span) -> TokenStream2 {
+    struct PatWrapper(syn::Pat);
+    impl syn::parse::Parse for PatWrapper {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            syn::Pat::parse_multi(input).map(PatWrapper)
+        }
+    }
+    match syn::parse2::<PatWrapper>(tokens.clone()) {
+        Ok(PatWrapper(pat)) => quote! { #pat },
+        Err(_) => tokens,
+    }
+}
+
+// ─── Helper: validate angle bracket tokens as syn::Generics ───
+fn validate_generics(tokens: &TokenStream2, _span: Span) -> TokenStream2 {
+    let wrapped = quote! { <#tokens> };
+    match syn::parse2::<syn::Generics>(wrapped) {
+        Ok(_) => tokens.clone(),
+        Err(_) => tokens.clone(),
+    }
+}
+
 // ─── Helper: parse a self parameter from tokens inside a parameter group ───
 // Returns Some(token_stream) if it's a self parameter form, None otherwise.
 // Only handles shorthand forms where self doesn't have a type annotation;
@@ -97,23 +145,37 @@ fn parse_self_param(inner: &[TokenTree]) -> Option<TokenStream2> {
     None
 }
 
-// ─── Helper: parse visibility modifier (pub, pub(crate), pub(super), pub(in path)) ───
+// ─── Helper: parse visibility modifier using syn::Visibility ───
 // Returns (visibility_tokens, tokens_consumed)
 fn parse_visibility(tokens: &[TokenTree]) -> (TokenStream2, usize) {
-    if tokens.is_empty() || !is_ident(&tokens[0], "pub") {
+    if tokens.is_empty() {
         return (quote! {}, 0);
     }
-    // Check for pub(...) — pub(crate), pub(super), pub(in path)
-    if tokens.len() >= 2 {
+    // Try to parse a syn::Visibility from the token prefix.
+    // We attempt to consume `pub`, `pub(crate)`, `pub(super)`, `pub(in path)`.
+    if !is_ident(&tokens[0], "pub") {
+        return (quote! {}, 0);
+    }
+    // Determine how many tokens the visibility consumes
+    let consumed = if tokens.len() >= 2 {
         if let TokenTree::Group(g) = &tokens[1] {
             if g.delimiter() == Delimiter::Parenthesis {
-                let inner = g.stream();
-                return (quote! { pub(#inner) }, 2);
+                2 // pub(...)
+            } else {
+                1 // just pub
             }
+        } else {
+            1 // just pub
         }
+    } else {
+        1 // just pub
+    };
+    let vis_tokens: TokenStream2 = tokens[..consumed].iter().cloned().collect();
+    // Validate with syn::Visibility
+    match syn::parse2::<syn::Visibility>(vis_tokens.clone()) {
+        Ok(vis) => (quote! { #vis }, consumed),
+        Err(e) => abort!(tokens[0].span(), "invalid visibility: {}", e),
     }
-    // Plain pub
-    (quote! { pub }, 1)
 }
 
 // ─── Shared parsing helpers ──────────────────────────────────────────────────
@@ -141,12 +203,14 @@ fn parse_attributes(tokens: &[TokenTree], i: &mut usize) -> TokenStream2 {
 }
 
 /// Parse `<...>` generic parameters, advancing `*i`. Returns None if no `<` found.
+/// Validates the collected tokens with `syn::Generics`.
 fn parse_generics_params(tokens: &[TokenTree], i: &mut usize) -> Option<TokenStream2> {
     if *i < tokens.len() && is_punct(&tokens[*i], '<') {
+        let span = tokens[*i].span();
         let (angle_contents, rest) = consume_angle_brackets(&tokens[*i..]);
         let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
         *i = tokens.len() - rest.len();
-        Some(angle_ts)
+        Some(validate_generics(&angle_ts, span))
     } else {
         None
     }
@@ -160,7 +224,7 @@ fn parse_where_clause(tokens: &[TokenTree], i: &mut usize) -> Option<TokenStream
             if let TokenTree::Group(g) = &tokens[*i] {
                 if g.delimiter() == Delimiter::Parenthesis {
                     *i += 1;
-                    return Some(g.stream().into());
+                    return Some(g.stream());
                 }
             }
         }
@@ -332,6 +396,37 @@ fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
         if let TokenTree::Punct(p2) = &tokens[1] {
             let ch2 = p2.as_char();
             match (ch, ch2) {
+                // Range operators: (.. a b) → a..b, (..= a b) → a..=b, (.. a) → a.., (..) → ..
+                ('.', '.') => {
+                    // Check for ..= (three punct tokens)
+                    if tokens.len() >= 3 {
+                        if let TokenTree::Punct(p3) = &tokens[2] {
+                            if p3.as_char() == '=' {
+                                // (..= a b) → a..=b
+                                if tokens.len() >= 5 {
+                                    let a = eval_lisp_arg(&tokens[3..4]);
+                                    let b = eval_lisp_arg(&tokens[4..5]);
+                                    return Some(quote! { #a ..= #b });
+                                }
+                            }
+                        }
+                    }
+                    // (.. a b) → a..b
+                    if tokens.len() >= 4 {
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        let b = eval_lisp_arg(&tokens[3..4]);
+                        return Some(quote! { #a .. #b });
+                    }
+                    // (.. a) → a..
+                    if tokens.len() == 3 {
+                        let a = eval_lisp_arg(&tokens[2..3]);
+                        return Some(quote! { #a .. });
+                    }
+                    // (..) → ..
+                    if tokens.len() == 2 {
+                        return Some(quote! { .. });
+                    }
+                }
                 // Comparison operators: operands start at index 2
                 ('=', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { == })),
                 ('!', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { != })),
@@ -744,7 +839,8 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                 let (path, rest) = consume_type_path(tokens);
                 let path_ts: TokenStream2 = path.into_iter().collect();
                 if rest.is_empty() {
-                    return quote! { #path_ts };
+                    // In the S-expression DSL, (path::func) is a zero-arg function call
+                    return quote! { #path_ts() };
                 }
                 // Check for path::name! pattern (macro invocation)
                 if !rest.is_empty() && is_punct(&rest[0], '!') {
@@ -957,10 +1053,11 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(Span::call_site(), "expected function name"));
+            return Err(syn::Error::new(tokens[i].span(), "expected function name"));
         }
     } else {
-        return Err(syn::Error::new(Span::call_site(), "expected function name"));
+        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        return Err(syn::Error::new(span, "expected function name after `fn`"));
     };
 
     // 5. Check for <...> generic params
@@ -986,7 +1083,8 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
                             }
                             if inner.len() >= 2 {
                                 let param_name = &inner[0];
-                                let param_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                                let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                                let param_type = validate_type(raw_type, inner[1].span());
                                 params.push(quote! { #param_name: #param_type });
                             }
                             is_first_param = false;
@@ -1000,6 +1098,7 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
 
     // 7. Parse return type
     let mut return_type_tokens = Vec::new();
+    let sig_ret_start = i;
     // Check for () as unit return type when followed by more tokens
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
@@ -1028,7 +1127,8 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
         None
     } else {
         let rt: TokenStream2 = return_type_tokens.into_iter().collect();
-        Some(rt)
+        let span = tokens.get(sig_ret_start).map_or(Span::call_site(), |t| t.span());
+        Some(validate_type(rt, span))
     };
 
     // 8. Check for `where` clause
@@ -1106,29 +1206,25 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // The last token tree is the RHS (possibly a parenthesized group for lisp recursion).
 // Everything between the operator and the last token is the LHS (emitted verbatim).
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_assign(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     if tokens.len() < 3 {
-        return syn::Error::new(Span::call_site(), "lisp_assign! requires at least an operator, LHS, and RHS")
-            .to_compile_error()
-            .into();
+        abort!(tokens.first().map_or(Span::call_site(), |t| t.span()),
+               "lisp_assign! requires at least an operator, LHS, and RHS");
     }
 
     // Parse the operator (first 1 or 2 punctuation tokens)
     let (op_tokens, rest) = parse_assign_op(&tokens);
     if op_tokens.is_empty() || rest.is_empty() {
-        return syn::Error::new(Span::call_site(), "lisp_assign! invalid operator or missing operands")
-            .to_compile_error()
-            .into();
+        abort!(tokens[0].span(), "lisp_assign! invalid operator or missing operands");
     }
 
     let op_ts: TokenStream2 = op_tokens.into_iter().collect();
 
     // Split rest into LHS (all but last) and RHS (last token)
     if rest.len() < 2 {
-        return syn::Error::new(Span::call_site(), "lisp_assign! requires both LHS and RHS")
-            .to_compile_error()
-            .into();
+        abort!(rest[0].span(), "lisp_assign! requires both LHS and RHS");
     }
 
     let lhs_tokens = &rest[..rest.len() - 1];
@@ -1151,6 +1247,7 @@ pub fn lisp_assign(input: TokenStream) -> TokenStream {
     let result = quote! {
         #lhs_ts #op_ts #rhs_ts;
     };
+    debug_expansion("lisp_assign!", &result);
     result.into()
 }
 
@@ -1243,11 +1340,12 @@ fn parse_assign_op(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
 //        lisp_impl!(GenericParams Trait for Type (method)...)
 //        lisp_impl!(Type (method)...)
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_impl(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_impl(&tokens);
     match result {
-        Ok(ts) => ts.into(),
+        Ok(ts) => { debug_expansion("lisp_impl!", &ts); ts.into() }
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -1261,7 +1359,8 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     // 2. Consume the first type/trait path
     let (first_path, rest) = consume_type_path(&tokens[i..]);
     if first_path.is_empty() {
-        return Err(syn::Error::new(Span::call_site(), "lisp_impl!: expected type or trait name"));
+        let span = tokens.get(i).map_or(Span::call_site(), |t| t.span());
+        return Err(syn::Error::new(span, "lisp_impl!: expected type or trait name"));
     }
     let first_path_ts: TokenStream2 = first_path.into_iter().collect();
     i = tokens.len() - rest.len();
@@ -1271,7 +1370,8 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         i += 1; // skip `for`
         let (type_path, rest2) = consume_type_path(&tokens[i..]);
         if type_path.is_empty() {
-            return Err(syn::Error::new(Span::call_site(), "lisp_impl!: expected type after 'for'"));
+            let span = tokens.get(i).map_or(tokens[i - 1].span(), |t| t.span());
+            return Err(syn::Error::new(span, "lisp_impl!: expected type after 'for'"));
         }
         let type_path_ts: TokenStream2 = type_path.into_iter().collect();
         i = tokens.len() - rest2.len();
@@ -1313,11 +1413,12 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 
 // ─── lisp_trait! ────────────────────────────────────────────────────────────
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_trait(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_trait(&tokens);
     match result {
-        Ok(ts) => ts.into(),
+        Ok(ts) => { debug_expansion("lisp_trait!", &ts); ts.into() }
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -1336,10 +1437,11 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(Span::call_site(), "lisp_trait!: expected trait name"));
+            return Err(syn::Error::new(tokens[i].span(), "lisp_trait!: expected trait name"));
         }
     } else {
-        return Err(syn::Error::new(Span::call_site(), "lisp_trait!: expected trait name"));
+        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        return Err(syn::Error::new(span, "lisp_trait!: expected trait name"));
     };
 
     // 3. Check for <...> generic params
@@ -1401,11 +1503,12 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 
 // ─── lisp_enum! ─────────────────────────────────────────────────────────────
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_enum(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_enum(&tokens);
     match result {
-        Ok(ts) => ts.into(),
+        Ok(ts) => { debug_expansion("lisp_enum!", &ts); ts.into() }
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -1431,10 +1534,11 @@ fn parse_enum(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(Span::call_site(), "lisp_enum!: expected enum name"));
+            return Err(syn::Error::new(tokens[i].span(), "lisp_enum!: expected enum name"));
         }
     } else {
-        return Err(syn::Error::new(Span::call_site(), "lisp_enum!: expected enum name"));
+        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        return Err(syn::Error::new(span, "lisp_enum!: expected enum name"));
     };
 
     // 3. Check for <...> generic params
@@ -1472,7 +1576,7 @@ fn parse_enum_variant(stream: TokenStream2) -> syn::Result<TokenStream2> {
     let variant_name = if let TokenTree::Ident(id) = &tokens[0] {
         id.clone()
     } else {
-        return Err(syn::Error::new(Span::call_site(), "expected variant name"));
+        return Err(syn::Error::new(tokens[0].span(), "expected variant name"));
     };
 
     if tokens.len() == 1 {
@@ -1515,7 +1619,8 @@ fn parse_struct_variant_fields(stream: TokenStream2) -> syn::Result<TokenStream2
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
                 if inner.len() >= 2 {
                     if let TokenTree::Ident(field_name) = &inner[0] {
-                        let field_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                        let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                        let field_type = validate_type(raw_type, inner[1].span());
                         fields.push(quote! { #field_name: #field_type });
                     }
                 }
@@ -1534,11 +1639,12 @@ fn parse_struct_variant_fields(stream: TokenStream2) -> syn::Result<TokenStream2
 
 // ─── lisp_struct! ───────────────────────────────────────────────────────────
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_struct(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_struct(&tokens);
     match result {
-        Ok(ts) => ts.into(),
+        Ok(ts) => { debug_expansion("lisp_struct!", &ts); ts.into() }
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -1565,10 +1671,11 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(Span::call_site(), "lisp_struct!: expected struct name"));
+            return Err(syn::Error::new(tokens[i].span(), "lisp_struct!: expected struct name"));
         }
     } else {
-        return Err(syn::Error::new(Span::call_site(), "lisp_struct!: expected struct name"));
+        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        return Err(syn::Error::new(span, "lisp_struct!: expected struct name"));
     };
 
     // 4. Consume <...> generic params
@@ -1627,7 +1734,8 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
                         let field_tokens: Vec<TokenTree> = fg.stream().into_iter().collect();
                         if field_tokens.len() >= 2 {
                             let field_name = &field_tokens[0];
-                            let field_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
+                            let raw_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
+                            let field_type = validate_type(raw_type, field_tokens[1].span());
                             if is_pub {
                                 all_fields.push(quote! { pub #field_name: #field_type });
                             } else {
@@ -1638,31 +1746,32 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
                 }
             }
         }
-        return Ok(quote! {
+        Ok(quote! {
             #attrs_ts
             #vis_ts struct #struct_name #gen #where_cl {
                 #(#all_fields),*
             }
-        });
+        })
     } else {
         // Tuple struct — first group contains space-separated types
         let types_stream: TokenStream2 = first_inner.into_iter().collect();
         let types = parse_type_list(types_stream)
             .map_err(|e| syn::Error::new(e.span(), format!("lisp_struct! tuple fields: {}", e)))?;
-        return Ok(quote! {
+        Ok(quote! {
             #attrs_ts
             #vis_ts struct #struct_name #gen #where_cl ( #(#types),* );
-        });
+        })
     }
 }
 
 // ─── lisp_fn! ───────────────────────────────────────────────────────────────
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_fn(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_fn(&tokens);
     match result {
-        Ok(ts) => ts.into(),
+        Ok(ts) => { debug_expansion("lisp_fn!", &ts); ts.into() }
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -1672,22 +1781,14 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     let sig = match parse_fn_signature(tokens)? {
         Some((sig, _)) => sig,
         None => {
-            return Err(syn::Error::new(Span::call_site(), "lisp_fn!: expected fn keyword"));
+            let span = tokens.first().map_or(Span::call_site(), |t| t.span());
+            return Err(syn::Error::new(span, "lisp_fn!: expected fn keyword"));
         }
     };
 
-    // Body: remaining parenthesized groups dispatch through ::lisp::lisp!
-    let mut body_items = Vec::new();
-    let mut i = sig.body_start;
-    while i < tokens.len() {
-        if let TokenTree::Group(g) = &tokens[i] {
-            if g.delimiter() == Delimiter::Parenthesis {
-                let inner = g.stream();
-                body_items.push(quote! { ::lisp::lisp! { #inner } });
-            }
-        }
-        i += 1;
-    }
+    // Body: remaining parenthesized groups evaluated via eval_lisp_expr
+    // (consistent with parse_impl_body_item, eliminating the ::lisp::lisp! callback chain)
+    let body_items = parse_body_items(tokens, sig.body_start);
 
     let gen = emit_generics(&sig.generics);
     let ret = emit_return_type(&sig.return_type);
@@ -1712,13 +1813,14 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 // Handles pattern destructuring in let bindings that macro_rules! can't match.
 // The last token tree is the value (possibly a parenthesized group for lisp recursion).
 // Everything before the last token is the pattern (emitted verbatim).
+// Validates patterns with syn::Pat when possible.
 #[proc_macro]
+#[proc_macro_error]
 pub fn lisp_let(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     if tokens.len() < 2 {
-        return syn::Error::new(Span::call_site(), "lisp_let! requires a pattern and a value")
-            .to_compile_error()
-            .into();
+        abort!(tokens.first().map_or(Span::call_site(), |t| t.span()),
+               "lisp_let! requires a pattern and a value");
     }
 
     // Check for `mut` keyword at the start
@@ -1727,16 +1829,15 @@ pub fn lisp_let(input: TokenStream) -> TokenStream {
     if is_mut { i += 1; }
 
     if tokens.len() - i < 2 {
-        return syn::Error::new(Span::call_site(), "lisp_let! requires a pattern and a value")
-            .to_compile_error()
-            .into();
+        abort!(tokens[i].span(), "lisp_let! requires a pattern and a value");
     }
 
     // Pattern is everything from i to len-1, value is last token
     let pattern_tokens = &tokens[i..tokens.len() - 1];
     let value_token = &tokens[tokens.len() - 1];
 
-    let pattern_ts: TokenStream2 = pattern_tokens.iter().cloned().collect();
+    let raw_pattern: TokenStream2 = pattern_tokens.iter().cloned().collect();
+    let pattern_ts = validate_pattern(raw_pattern, pattern_tokens[0].span());
 
     // If value is a parenthesized group, recurse through lisp!
     let val_ts = match value_token {
@@ -1755,5 +1856,6 @@ pub fn lisp_let(input: TokenStream) -> TokenStream {
     let result = quote! {
         let #mut_kw #pattern_ts = #val_ts;
     };
+    debug_expansion("lisp_let!", &result);
     result.into()
 }

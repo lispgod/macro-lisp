@@ -6,7 +6,15 @@ edition = "2021"
 [lib]
 proc-macro = true
 
+[features]
+debug-expansion = ["prettyplease"]
+
 [dependencies]
 proc-macro2 = "1"
+proc-macro-error2 = "2"
 quote = "1"
 syn = { version = "2", features = ["full", "parsing", "printing"] }
+
+[dependencies.prettyplease]
+version = "0.2"
+optional = true
