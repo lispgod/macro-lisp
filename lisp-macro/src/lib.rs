@@ -75,8 +75,8 @@ fn is_literal_like(tt: &TokenTree) -> bool {
 }
 
 // ─── Helper: validate a token stream as a Rust type using syn::Type ───
-// Returns the validated type tokens. Aborts with a helpful error if invalid.
-fn validate_type(tokens: TokenStream2, _span: Span) -> TokenStream2 {
+// Returns the validated type tokens, falling back to raw tokens if syn can't parse them.
+fn validate_type(tokens: TokenStream2) -> TokenStream2 {
     match syn::parse2::<syn::Type>(tokens.clone()) {
         Ok(ty) => quote! { #ty },
         Err(_) => {
@@ -88,7 +88,7 @@ fn validate_type(tokens: TokenStream2, _span: Span) -> TokenStream2 {
 }
 
 // ─── Helper: validate a token stream as a Rust pattern using syn::Pat ───
-fn validate_pattern(tokens: TokenStream2, _span: Span) -> TokenStream2 {
+fn validate_pattern(tokens: TokenStream2) -> TokenStream2 {
     struct PatWrapper(syn::Pat);
     impl syn::parse::Parse for PatWrapper {
         fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
@@ -102,7 +102,7 @@ fn validate_pattern(tokens: TokenStream2, _span: Span) -> TokenStream2 {
 }
 
 // ─── Helper: validate angle bracket tokens as syn::Generics ───
-fn validate_generics(tokens: &TokenStream2, _span: Span) -> TokenStream2 {
+fn validate_generics(tokens: &TokenStream2) -> TokenStream2 {
     let wrapped = quote! { <#tokens> };
     match syn::parse2::<syn::Generics>(wrapped) {
         Ok(_) => tokens.clone(),
@@ -206,11 +206,10 @@ fn parse_attributes(tokens: &[TokenTree], i: &mut usize) -> TokenStream2 {
 /// Validates the collected tokens with `syn::Generics`.
 fn parse_generics_params(tokens: &[TokenTree], i: &mut usize) -> Option<TokenStream2> {
     if *i < tokens.len() && is_punct(&tokens[*i], '<') {
-        let span = tokens[*i].span();
         let (angle_contents, rest) = consume_angle_brackets(&tokens[*i..]);
         let angle_ts: TokenStream2 = angle_contents.into_iter().collect();
         *i = tokens.len() - rest.len();
-        Some(validate_generics(&angle_ts, span))
+        Some(validate_generics(&angle_ts))
     } else {
         None
     }
@@ -1084,7 +1083,7 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
                             if inner.len() >= 2 {
                                 let param_name = &inner[0];
                                 let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
-                                let param_type = validate_type(raw_type, inner[1].span());
+                                let param_type = validate_type(raw_type);
                                 params.push(quote! { #param_name: #param_type });
                             }
                             is_first_param = false;
@@ -1098,7 +1097,6 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
 
     // 7. Parse return type
     let mut return_type_tokens = Vec::new();
-    let sig_ret_start = i;
     // Check for () as unit return type when followed by more tokens
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
@@ -1127,8 +1125,7 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
         None
     } else {
         let rt: TokenStream2 = return_type_tokens.into_iter().collect();
-        let span = tokens.get(sig_ret_start).map_or(Span::call_site(), |t| t.span());
-        Some(validate_type(rt, span))
+        Some(validate_type(rt))
     };
 
     // 8. Check for `where` clause
@@ -1620,7 +1617,7 @@ fn parse_struct_variant_fields(stream: TokenStream2) -> syn::Result<TokenStream2
                 if inner.len() >= 2 {
                     if let TokenTree::Ident(field_name) = &inner[0] {
                         let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
-                        let field_type = validate_type(raw_type, inner[1].span());
+                        let field_type = validate_type(raw_type);
                         fields.push(quote! { #field_name: #field_type });
                     }
                 }
@@ -1735,7 +1732,7 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
                         if field_tokens.len() >= 2 {
                             let field_name = &field_tokens[0];
                             let raw_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
-                            let field_type = validate_type(raw_type, field_tokens[1].span());
+                            let field_type = validate_type(raw_type);
                             if is_pub {
                                 all_fields.push(quote! { pub #field_name: #field_type });
                             } else {
@@ -1837,7 +1834,7 @@ pub fn lisp_let(input: TokenStream) -> TokenStream {
     let value_token = &tokens[tokens.len() - 1];
 
     let raw_pattern: TokenStream2 = pattern_tokens.iter().cloned().collect();
-    let pattern_ts = validate_pattern(raw_pattern, pattern_tokens[0].span());
+    let pattern_ts = validate_pattern(raw_pattern);
 
     // If value is a parenthesized group, recurse through lisp!
     let val_ts = match value_token {
