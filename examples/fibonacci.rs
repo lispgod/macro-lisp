@@ -9,7 +9,7 @@ lisp!(fn fibonacci ((n i32)) i32
         (+ (fibonacci (- n 1)) (fibonacci (- n 2)))));
 
 lisp!(fn main () ()
-    (dotimes (i 10)
-        (let n (1+ i))
+    (for i in (range 0 10)
+        (let n (+ i 1))
         (let result (fibonacci n))
         (println "fib({}) = {}" n result)));
