@@ -308,12 +308,12 @@ macro_rules! lisp {
     ( $(#[$m:meta])* enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* enum $name { $($body)* } );
 
     // trait
-    ( $(#[$m:meta])* pub trait $name:ident $( ( $($e:tt)* ) )* ) => ( $(#[$m]);* pub trait $name { $( $crate::lisp!($($e)*) )* } );
-    ( $(#[$m:meta])* trait $name:ident $( ( $($e:tt)* ) )* ) => ( $(#[$m]);* trait $name { $( $crate::lisp!($($e)*) )* } );
+    ( $(#[$m:meta])* pub trait $name:ident $( ( $($e:tt)* ) )* ) => ( $(#[$m]);* pub trait $name { $( $crate::lisp!{$($e)*} )* } );
+    ( $(#[$m:meta])* trait $name:ident $( ( $($e:tt)* ) )* ) => ( $(#[$m]);* trait $name { $( $crate::lisp!{$($e)*} )* } );
 
     // impl
-    (impl $trait_name:ident for $typ:ident $( ( $($e:tt)* ) )* ) => ( impl $trait_name for $typ { $( $crate::lisp!($($e)*) )* } );
-    (impl $typ:ident $( ( $($e:tt)* ) )* ) => ( impl $typ { $( $crate::lisp!($($e)*) )* } );
+    (impl $trait_name:ident for $typ:ident $( ( $($e:tt)* ) )* ) => ( impl $trait_name for $typ { $( $crate::lisp!{$($e)*} )* } );
+    (impl $typ:ident $( ( $($e:tt)* ) )* ) => ( impl $typ { $( $crate::lisp!{$($e)*} )* } );
 
     // type alias
     (pub type $name:ident = $target:ty) => (pub type $name = $target;);
@@ -529,20 +529,20 @@ macro_rules! lisp {
     (panic $($arg:tt)+ ) => ( panic!( $($arg)+ ); );
 
     // ── Logical ──────────────────────────────────────────────
-    (and $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(and ($crate::lisp_arg!($a) && $crate::lisp_arg!($b)) $($rest)+));
+    (and $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(and {$crate::lisp_arg!($a) && $crate::lisp_arg!($b)} $($rest)+));
     (and $x:tt $y:tt) => ($crate::lisp_arg!($x) && $crate::lisp_arg!($y));
-    (or $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(or ($crate::lisp_arg!($a) || $crate::lisp_arg!($b)) $($rest)+));
+    (or $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(or {$crate::lisp_arg!($a) || $crate::lisp_arg!($b)} $($rest)+));
     (or $x:tt $y:tt) => ($crate::lisp_arg!($x) || $crate::lisp_arg!($y));
     (! $e:tt) => ( ! $crate::lisp_arg!($e));
 
     // ── Arithmetic ───────────────────────────────────────────
-    (+ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(+ ($crate::lisp_arg!($a) + $crate::lisp_arg!($b)) $($rest)+));
+    (+ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(+ {$crate::lisp_arg!($a) + $crate::lisp_arg!($b)} $($rest)+));
     (+ $x:tt $y:tt) => ($crate::lisp_arg!($x) + $crate::lisp_arg!($y));
-    (- $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(- ($crate::lisp_arg!($a) - $crate::lisp_arg!($b)) $($rest)+));
+    (- $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(- {$crate::lisp_arg!($a) - $crate::lisp_arg!($b)} $($rest)+));
     (- $x:tt $y:tt) => ($crate::lisp_arg!($x) - $crate::lisp_arg!($y));
-    (* $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(* ($crate::lisp_arg!($a) * $crate::lisp_arg!($b)) $($rest)+));
+    (* $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(* {$crate::lisp_arg!($a) * $crate::lisp_arg!($b)} $($rest)+));
     (* $x:tt $y:tt) => ($crate::lisp_arg!($x) * $crate::lisp_arg!($y));
-    (/ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(/ ($crate::lisp_arg!($a) / $crate::lisp_arg!($b)) $($rest)+));
+    (/ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(/ {$crate::lisp_arg!($a) / $crate::lisp_arg!($b)} $($rest)+));
     (/ $x:tt $y:tt) => ($crate::lisp_arg!($x) / $crate::lisp_arg!($y));
     (% $x:tt $y:tt) => ($crate::lisp_arg!($x) % $crate::lisp_arg!($y));
 
