@@ -35,10 +35,9 @@ fn tuple_pair() {
 
 #[test]
 fn tuple_single() {
-    // Note: (tuple x) produces (x) not (x,) — single-element tuples
-    // are a known limitation. Use Rust syntax directly for 1-tuples.
+    // (tuple x) produces a single-element tuple (x,)
     let t = lisp!(tuple 42);
-    assert_eq!(t, 42);
+    assert_eq!(t, (42,));
 }
 
 #[test]
