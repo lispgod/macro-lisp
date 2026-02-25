@@ -1,5 +1,11 @@
 //! `lisp!` — Write Rust code in S-expression (Lisp-like) syntax.
 //!
+//! # Visibility
+//!
+//! All item definitions (struct, enum, trait, fn, const, static, type, mod)
+//! accept any Rust visibility modifier uniformly via `$vis:vis`:
+//! `pub`, `pub(crate)`, `pub(super)`, `pub(in path)`, or no modifier.
+//!
 //! # Supported Forms
 //!
 //! ## Literals
@@ -14,6 +20,7 @@
 //! |---|---|
 //! | `(struct Name ((field Type)...))` | `struct Name { field: Type, ... }` |
 //! | `(pub struct Name ((field Type)...))` | `pub struct Name { field: Type, ... }` |
+//! | `(pub(crate) struct Name ...)` | `pub(crate) struct Name { ... }` |
 //! | `(struct Name (Type1 Type2))` | `struct Name(Type1, Type2);` (tuple struct) |
 //! | `(enum Name { variants })` | `enum Name { variants }` |
 //! | `(pub enum Name { variants })` | `pub enum Name { variants }` |
