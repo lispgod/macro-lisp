@@ -289,6 +289,115 @@ fn consume_type_path(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[TokenTree]) {
     (result, &tokens[i..])
 }
 
+// ─── Operator dispatch helpers for eval_lisp_expr ────────────────────────────
+// These eliminate the repetitive per-operator match arms in the Punct branch.
+
+/// Evaluate a binary operation: `(op a b)` → `a op b`
+fn eval_binary_op(operands: &[TokenTree], op: TokenStream2) -> TokenStream2 {
+    let a = eval_lisp_arg(&operands[0..1]);
+    let b = eval_lisp_arg(&operands[1..2]);
+    quote! { #a #op #b }
+}
+
+/// Evaluate a variadic arithmetic operation: `(op a b c ...)` → `a op b op c op ...`
+fn eval_variadic_op(operands: &[TokenTree], op_char: char) -> TokenStream2 {
+    let op = Punct::new(op_char, Spacing::Alone);
+    let a = eval_lisp_arg(&operands[0..1]);
+    let b = eval_lisp_arg(&operands[1..2]);
+    let mut result = quote! { #a #op #b };
+    for t in &operands[2..] {
+        let c = eval_lisp_arg(std::slice::from_ref(t));
+        let op = Punct::new(op_char, Spacing::Alone);
+        result = quote! { #result #op #c };
+    }
+    result
+}
+
+/// Evaluate a compound assignment: `(op= lhs... rhs)` → `lhs op= rhs;`
+fn eval_compound_assign(rest: &[TokenTree], op_char: char) -> TokenStream2 {
+    let lhs: TokenStream2 = rest[..rest.len()-1].iter().cloned().collect();
+    let rhs = eval_lisp_arg(&rest[rest.len()-1..]);
+    let op = Punct::new(op_char, Spacing::Joint);
+    quote! { #lhs #op = #rhs; }
+}
+
+/// Dispatch punctuation-based expressions in eval_lisp_expr.
+/// Returns Some(result) if handled, None otherwise.
+fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
+    let TokenTree::Punct(p) = &tokens[0] else { return None };
+    let ch = p.as_char();
+
+    // ── Two-character operators (check second punct token first) ──
+    if tokens.len() >= 2 {
+        if let TokenTree::Punct(p2) = &tokens[1] {
+            let ch2 = p2.as_char();
+            match (ch, ch2) {
+                // Comparison operators: operands start at index 2
+                ('=', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { == })),
+                ('!', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { != })),
+                ('>', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { >= })),
+                ('<', '=') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { <= })),
+                // Logical operators: operands start at index 2
+                ('&', '&') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { && })),
+                ('|', '|') if tokens.len() >= 4 => return Some(eval_binary_op(&tokens[2..], quote! { || })),
+                // Compound assignment operators: (op= lhs... rhs)
+                ('+', '=') | ('-', '=') | ('*', '=') | ('/', '=') | ('%', '=')
+                | ('&', '=') | ('|', '=') | ('^', '=') if tokens.len() >= 4 => {
+                    return Some(eval_compound_assign(&tokens[2..], ch));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // ── Single-character operators ──
+    match ch {
+        // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...), (% a b)
+        '+' | '-' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
+        '*' | '/' | '%' if tokens.len() == 3 => {
+            let a = eval_lisp_arg(&tokens[1..2]);
+            let b = eval_lisp_arg(&tokens[2..3]);
+            let op = Punct::new(ch, Spacing::Alone);
+            return Some(quote! { #a #op #b });
+        }
+        // Simple comparison: (> a b), (< a b)
+        '>' | '<' if tokens.len() == 3 => {
+            let a = eval_lisp_arg(&tokens[1..2]);
+            let b = eval_lisp_arg(&tokens[2..3]);
+            let op = Punct::new(ch, Spacing::Alone);
+            return Some(quote! { #a #op #b });
+        }
+        // Simple assignment: (= lhs... rhs)
+        '=' if tokens.len() >= 3 => {
+            let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
+            let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
+            return Some(quote! { #lhs = #rhs; });
+        }
+        // Unary not: (! x)
+        '!' if tokens.len() == 2 => {
+            let e = eval_lisp_arg(&tokens[1..2]);
+            return Some(quote! { ! #e });
+        }
+        // Field access: (. obj field1 field2 ...)
+        '.' if tokens.len() >= 3 => {
+            let obj = eval_lisp_arg(&tokens[1..2]);
+            let fields_ts: TokenStream2 = tokens[2..].iter().map(|f| {
+                let f = f.clone();
+                quote! { .#f }
+            }).collect();
+            return Some(quote! { #obj #fields_ts });
+        }
+        // Try operator: (? x)
+        '?' if tokens.len() == 2 => {
+            let e = eval_lisp_arg(&tokens[1..2]);
+            return Some(quote! { #e? });
+        }
+        _ => {}
+    }
+
+    None
+}
+
 /// Evaluate a lisp expression (the contents of a parenthesized group) into Rust code.
 /// This is a mini-evaluator that handles the most common patterns directly,
 /// avoiding the need to delegate to `::lisp::lisp!` (which has hygiene issues with `self`).
@@ -568,178 +677,9 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                 _ => {}
             }
         }
-        TokenTree::Punct(p) => {
-            let ch = p.as_char();
-            match ch {
-                '+' => {
-                    // Check for +=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs += #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a + #b };
-                    } else if tokens.len() > 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        let mut result = quote! { #a + #b };
-                        for t in &tokens[3..] {
-                            let c = eval_lisp_arg(std::slice::from_ref(t));
-                            result = quote! { #result + #c };
-                        }
-                        return result;
-                    }
-                }
-                '-' => {
-                    // Check for -=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs -= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a - #b };
-                    } else if tokens.len() > 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        let mut result = quote! { #a - #b };
-                        for t in &tokens[3..] {
-                            let c = eval_lisp_arg(std::slice::from_ref(t));
-                            result = quote! { #result - #c };
-                        }
-                        return result;
-                    }
-                }
-                '*' => {
-                    // Check for *=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs *= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a * #b };
-                    }
-                }
-                '/' => {
-                    // Check for /=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs /= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a / #b };
-                    }
-                }
-                '%' => {
-                    // Check for %=
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let lhs: TokenStream2 = tokens[2..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs %= #rhs; };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a % #b };
-                    }
-                }
-                '>' => {
-                    // Check for >= or >>
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a >= #b };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a > #b };
-                    }
-                }
-                '<' => {
-                    if tokens.len() >= 3 && is_punct(&tokens[1], '=') {
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a <= #b };
-                    }
-                    if tokens.len() == 3 {
-                        let a = eval_lisp_arg(&tokens[1..2]);
-                        let b = eval_lisp_arg(&tokens[2..3]);
-                        return quote! { #a < #b };
-                    }
-                }
-                '=' => {
-                    if tokens.len() >= 3 {
-                        if is_punct(&tokens[1], '=') {
-                            // ==
-                            let a = eval_lisp_arg(&tokens[2..3]);
-                            let b = eval_lisp_arg(&tokens[3..4]);
-                            return quote! { #a == #b };
-                        }
-                        // assignment
-                        let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-                        return quote! { #lhs = #rhs; };
-                    }
-                }
-                '!' => {
-                    if tokens.len() >= 2 && is_punct(&tokens[1], '=') {
-                        // !=
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a != #b };
-                    }
-                    if tokens.len() == 2 {
-                        let e = eval_lisp_arg(&tokens[1..2]);
-                        return quote! { ! #e };
-                    }
-                }
-                '.' => {
-                    // (. obj field1 field2 ...)
-                    if tokens.len() >= 3 {
-                        let obj = eval_lisp_arg(&tokens[1..2]);
-                        let fields: Vec<&TokenTree> = tokens[2..].iter().collect();
-                        let fields_ts: TokenStream2 = fields.iter().map(|f| {
-                            let f = (*f).clone();
-                            quote! { .#f }
-                        }).collect();
-                        return quote! { #obj #fields_ts };
-                    }
-                }
-                '&' => {
-                    if tokens.len() >= 2 && is_punct(&tokens[1], '&') {
-                        // &&
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a && #b };
-                    }
-                }
-                '|' => {
-                    if tokens.len() >= 2 && is_punct(&tokens[1], '|') {
-                        // ||
-                        let a = eval_lisp_arg(&tokens[2..3]);
-                        let b = eval_lisp_arg(&tokens[3..4]);
-                        return quote! { #a || #b };
-                    }
-                }
-                '?' => {
-                    if tokens.len() == 2 {
-                        let e = eval_lisp_arg(&tokens[1..2]);
-                        return quote! { #e? };
-                    }
-                }
-                _ => {}
+        TokenTree::Punct(_) => {
+            if let Some(result) = eval_punct_expr(tokens) {
+                return result;
             }
         }
         _ => {}
