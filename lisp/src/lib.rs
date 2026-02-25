@@ -231,6 +231,12 @@ macro_rules! lisp {
     ( $(#[$m:meta])* pub ($($vis:tt)+) unsafe fn $($rest:tt)+ ) => (
         $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) unsafe fn $($rest)+ );
     );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) async fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) async fn $($rest)+ );
+    );
+    ( $(#[$m:meta])* pub ($($vis:tt)+) extern $abi:literal fn $($rest:tt)+ ) => (
+        $crate::lisp_fn!( $(#[$m])* pub ($($vis)+) extern $abi fn $($rest)+ );
+    );
     (pub ($($vis:tt)+) const $name:ident $typ:ty = $val:expr) => (
         pub($($vis)+) const $name: $typ = $val;
     );
