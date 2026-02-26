@@ -857,12 +857,22 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                         .collect();
                     return quote! { #path_ts(#(#args),*) };
                 } else {
-                    // No args — method call with zero args (like the original catch-all)
-                    // EXCEPT for `self.x.y` which is field access
+                    // No args
+                    // `self.x.y` is field access
                     if *first == "self" {
                         return quote! { #path_ts };
                     }
-                    return quote! { #path_ts() };
+                    // Non-self: each .ident is a zero-arg method call
+                    // obj.m1.m2 → obj.m1().m2()
+                    let first_tok = &tokens[0];
+                    let mut result = quote! { #first_tok };
+                    let mut j = 2; // skip first ident and first dot
+                    while j < path_end {
+                        let method = &tokens[j];
+                        result = quote! { #result.#method() };
+                        j += 2; // skip ident and next dot
+                    }
+                    return result;
                 }
             }
         }

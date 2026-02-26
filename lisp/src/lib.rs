@@ -573,7 +573,7 @@ macro_rules! lisp {
 
     // ── Catch-all ────────────────────────────────────────────
     ( $sym:ident $(:: $sym2:ident )+ $( $e:tt )* ) => ( $sym $(:: $sym2 )+ ( $($crate::lisp_arg!($e)),* ) );
-    ( $sym:ident . $( $sym2:ident ).+ $( $e:tt )* ) => ( $sym.$( $sym2 ).+ ( $($crate::lisp_arg!($e)),* ) );
+    ( $sym:ident . $($rest:tt)+ ) => ( $crate::lisp_dot_call!($sym ; $($rest)+) );
     ( $sym:ident $( $e:tt )* ) => ( $sym ( $($crate::lisp_arg!($e)),* ) );
 
     ($e:expr) => ($e);
@@ -583,6 +583,14 @@ macro_rules! lisp {
 macro_rules! lisp_arg {
     ( ( $($e:tt)* ) ) => ( $crate::lisp!( $($e)* ) );
     ($e:expr) => ($e);
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! lisp_dot_call {
+    ($acc:expr ; $m:ident) => ( $acc.$m() );
+    ($acc:expr ; $m:ident . $($rest:tt)+) => ( $crate::lisp_dot_call!($acc.$m() ; $($rest)+) );
+    ($acc:expr ; $m:ident $($args:tt)+) => ( $acc.$m($($crate::lisp_arg!($args)),*) );
 }
 
 #[doc(hidden)]
