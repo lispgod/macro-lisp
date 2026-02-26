@@ -885,10 +885,10 @@ pub(crate) fn eval_lisp_arg(tokens: &[TokenTree]) -> syn::Expr {
                 return eval_lisp_expr(&g.stream().into_iter().collect::<Vec<_>>()).into_expr();
             }
         }
-        let t = &tokens[0];
-        return verbatim_expr(quote! { #t });
+        let ts: TokenStream2 = std::iter::once(tokens[0].clone()).collect();
+        return syn::parse2::<syn::Expr>(ts.clone()).unwrap_or(syn::Expr::Verbatim(ts));
     }
-    // Multi-token: treat as expression
+    // Multi-token: try syn::parse2 before falling back to Verbatim
     let ts: TokenStream2 = tokens.iter().cloned().collect();
-    verbatim_expr(quote! { #ts })
+    syn::parse2::<syn::Expr>(ts.clone()).unwrap_or(syn::Expr::Verbatim(ts))
 }
