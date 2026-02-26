@@ -373,7 +373,8 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                 expr: Box::new(paren_wrap(e)),
             })));
         }
-        // Field access: (. obj field1 field2 ...)
+        // Field access and method calls: (. obj field1 field2 ...)
+        // Method call on expression: (. obj (method arg1 arg2))
         '.' if tokens.len() >= 3 => {
             let obj = eval_lisp_arg(&tokens[1..2]);
             let result = tokens[2..].iter().fold(obj, |acc, f| {
@@ -391,6 +392,23 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                                     span: lit.span(),
                                 }),
                             })
+                        } else {
+                            acc
+                        }
+                    }
+                    TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis => {
+                        // Method call: (. obj (method arg1 arg2))
+                        let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                        if !inner.is_empty() {
+                            if let TokenTree::Ident(method) = &inner[0] {
+                                let args: Vec<syn::Expr> = inner[1..]
+                                    .iter()
+                                    .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                                    .collect();
+                                make_method_call(acc, method.clone(), args)
+                            } else {
+                                acc
+                            }
                         } else {
                             acc
                         }
@@ -657,7 +675,9 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                     return LispOutput::Tokens(quote! { #all });
                 }
                 "val" => {
-                    if tokens.len() == 2 {
+                    // Supports single idents (val x) and multi-token paths
+                    // like (val std::f64::consts::PI) or (val MyEnum::Variant)
+                    if tokens.len() >= 2 {
                         return LispOutput::Expr(eval_lisp_arg(&tokens[1..]));
                     }
                 }
@@ -687,20 +707,6 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                 }
                 "let" => {
                     return eval_let(&tokens[1..]);
-                }
-                "rust" => {
-                    // (rust { code }) or (rust stmt...)
-                    if tokens.len() >= 2 {
-                        if let TokenTree::Group(g) = &tokens[1] {
-                            if g.delimiter() == Delimiter::Brace {
-                                let inner = g.stream();
-                                return LispOutput::Tokens(quote! { { #inner } });
-                            }
-                        }
-                    }
-                    // (rust stmt...) — pass through as raw Rust
-                    let rest: TokenStream2 = tokens[1..].iter().cloned().collect();
-                    return LispOutput::Tokens(quote! { #rest });
                 }
                 "ref" => {
                     // (ref mut x) or (ref x)

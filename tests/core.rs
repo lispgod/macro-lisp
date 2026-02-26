@@ -344,14 +344,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rust_escape() {
-        lisp!(rust
-            let x: i32 = 42
-        );
-        assert_eq!(42, x);
-    }
-
-    #[test]
     fn test_closure_move() {
         lisp!(block
             (let val 42)

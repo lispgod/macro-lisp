@@ -449,24 +449,6 @@ fn tuple_struct_single() {
     assert_eq!(w.0, 42);
 }
 
-// ── rust { ... } escape hatch ───────────────────────────────
-
-#[test]
-fn rust_brace_escape() {
-    let result: i32 = lisp!(rust { 2 + 3 });
-    assert_eq!(result, 5);
-}
-
-#[test]
-fn rust_brace_escape_complex() {
-    let result: i32 = lisp!(rust {
-        let x = 10;
-        let y = 20;
-        x + y
-    });
-    assert_eq!(result, 30);
-}
-
 // ── Nested labeled loops ────────────────────────────────────
 
 #[test]
@@ -543,7 +525,7 @@ fn extern_crate_form() {
 #[test]
 fn unsafe_block() {
     let x = lisp!(unsafe
-        (rust let x: i32 = 42)
+        (let (x i32) 42)
         (+ x 0)
     );
     assert_eq!(x, 42);
@@ -557,7 +539,7 @@ fn unsafe_block() {
 fn unsafe_raw_pointer() {
     let x = 42i32;
     let p = &x as *const i32;
-    let val = lisp!(unsafe (rust let v = *p) (+ v 0));
+    let val = lisp!(unsafe (let v (deref p)) (+ v 0));
     assert_eq!(val, 42);
 }
 

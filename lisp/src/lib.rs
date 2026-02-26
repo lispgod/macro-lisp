@@ -199,8 +199,8 @@
 //! | `(array 1 2 3)` | `[1, 2, 3]` |
 //! | `(vec a b c)` | `vec![a, b, c]` |
 //! | `(val x)` | `x` |
-//! | `(rust { code })` | `code` |
-//! | `(rust stmt...)` | `stmt; ...` |
+//! | `(val path::to::item)` | `path::to::item` |
+//! | `(. expr (method args))` | `expr.method(args)` |
 //! | `(path::func args...)` | `path::func(args...)` |
 //! | `(obj.method args...)` | `obj.method(args...)` |
 //! | `(func args...)` | `func(args...)` |
@@ -281,13 +281,6 @@ macro_rules! lisp {
     ( $(#[$m:meta])* $vis:vis async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis async fn $sym $($rest)+); );
     ( $(#[$m:meta])* $vis:vis extern $abi:literal fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis extern $abi fn $sym $($rest)+); );
     ( $(#[$m:meta])* $vis:vis fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis fn $sym $($rest)+); );
-
-    // ── Rust escape ──────────────────────────────────────────
-    // Uses $st:stmt fragment for correct statement-level parsing.
-    // Kept in macro_rules! because $st:stmt ensures proper statement boundaries
-    // that raw token passthrough in the proc-macro cannot replicate.
-    (rust { $($t:tt)* }) => ({ $($t)* });
-    (rust $( $st:stmt )* ) => ( $($st);* );
 
     // ── Expression evaluation — delegated to lisp_eval! proc macro ──────────
     // All expression forms (arithmetic, comparison, logical, control flow,

@@ -114,13 +114,10 @@ lisp!(impl Describable for Point
 // Trait impl: HasArea for Shape
 lisp!(impl HasArea for Shape
 (fn area ((&self)) f64
-    (rust {
-        match self {
-            Shape::Circle(r) => std::f64::consts::PI * r * r,
-            Shape::Rect { w, h } => w * h,
-            Shape::Unit => 0.0,
-        }
-    })));
+    (match self
+        (Shape::Circle(r) => (* (val std::f64::consts::PI) r r))
+        (Shape::Rect { w, h } => (* w h))
+        (Shape::Unit => 0.0))));
 
 // Trait impl: core::ops::Add for Point
 lisp!(impl core::ops::Add for Point
@@ -141,7 +138,7 @@ lisp!(impl core::clone::Clone for Point
 // Trait impl: core::cmp::PartialEq for Point
 lisp!(impl core::cmp::PartialEq for Point
     (fn eq ((self &Self) (other &Self)) bool
-        (rust { self.x == other.x && self.y == other.y })));
+        (&& (== (. self x) (. other x)) (== (. self y) (. other y)))));
 
 // Trait impl: core::ops::Neg for Point
 lisp!(impl core::ops::Neg for Point
@@ -153,14 +150,12 @@ lisp!(impl core::ops::Neg for Point
 lisp!(struct DropCounter ((count &'static std::cell::Cell<u32>)));
 lisp!(impl core::ops::Drop for DropCounter
 (fn drop ((&mut self))
-    (rust {
-        self.count.set(self.count.get() + 1);
-    })));
+    (. self count (set (+ (. self count (get)) 1)))));
 
 // Trait impl: core::convert::From
 lisp!(impl core::convert::From<(i32, i32)> for Point
     (fn from ((t (i32, i32))) Point
-        (rust { Point { x: t.0, y: t.1 } })));
+        (new Point (x (. t 0)) (y (. t 1)))));
 
 // Iterator impl
 lisp!(struct Counter ((current i32) (max i32)));
@@ -177,7 +172,7 @@ lisp!(impl core::iter::Iterator for Counter
 // Generic impl
 lisp!(impl<T: core::fmt::Debug + Clone> Container<T>
     (fn unwrap ((&self)) T
-        (rust { self.val.clone() })));
+        (. self val (clone))));
 
 // =============================================================================
 // 5. Named Functions
@@ -793,7 +788,7 @@ fn type_alias() {
 fn unsafe_block() {
     let x = 42;
     let ptr = &x as *const i32;
-    let val = lisp!(unsafe (rust { *ptr }));
+    let val = lisp!(unsafe (deref ptr));
     assert_eq!(val, 42);
 }
 
@@ -801,34 +796,6 @@ fn unsafe_block() {
 fn unsafe_fn_call() {
     let result = unsafe { unsafe_double(21) };
     assert_eq!(result, 42);
-}
-
-// =============================================================================
-// 16. Rust Escape Hatch
-// =============================================================================
-
-#[test]
-fn rust_brace_escape() {
-    let result: i32 = lisp!(rust { 2 + 3 });
-    assert_eq!(result, 5);
-}
-
-#[test]
-fn rust_brace_complex() {
-    let result: i32 = lisp!(rust {
-        let x = 10;
-        let y = 20;
-        x + y
-    });
-    assert_eq!(result, 30);
-}
-
-#[test]
-fn rust_stmt_escape() {
-    lisp!(rust
-        let x: i32 = 42
-    );
-    assert_eq!(x, 42);
 }
 
 // =============================================================================
@@ -1070,7 +1037,7 @@ lisp!(impl Stats
     (fn mean ((&self)) f64
         (if (== (self.count) 0)
             0.0
-            (/ (self.sum) (rust { self.count as f64 })))));
+            (/ (self.sum) (as (. self count) f64)))));
 
 #[test]
 fn stats_tracker() {

@@ -80,7 +80,7 @@ lisp!(struct Vec2
 
 lisp!(impl Vec2
     (fn magnitude ((self Vec2)) f64
-        (rust let sum_sq = self.x * self.x + self.y * self.y)
+        (let sum_sq (+ (* (. self x) (. self x)) (* (. self y) (. self y))))
         (sum_sq.sqrt))
 );
 
@@ -157,14 +157,6 @@ fn scoped_bindings_complex() {
 fn format_and_print() {
     let s = lisp!(format! "{} + {} = {}" 2 3 5);
     assert_eq!(s, "2 + 3 = 5");
-}
-
-#[test]
-fn rust_escape_hatch() {
-    lisp!(rust
-        let x: i32 = 42
-    );
-    assert_eq!(x, 42);
 }
 
 #[test]
