@@ -707,6 +707,13 @@ lisp!(tuple 1 2 3)  →  (1, 2, 3)
 lisp!(array 10 20 30)  →  [10, 20, 30]
 ```
 
+For array-repeat syntax, use raw Rust bracket expressions directly:
+
+```
+[0; 5]   →  [0, 0, 0, 0, 0]
+[42; 3]  →  [42, 42, 42]
+```
+
 ### `vec`
 
 ```
