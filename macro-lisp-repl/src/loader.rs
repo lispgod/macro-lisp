@@ -55,7 +55,7 @@ pub fn is_balanced(input: &str) -> bool {
         }
     }
 
-    depth <= 0
+    depth == 0
 }
 
 /// Parse top-level S-expressions from a source string.
@@ -171,6 +171,12 @@ mod tests {
         assert!(!is_balanced("(+ 1"));
         assert!(!is_balanced("(fn main () ()"));
         assert!(!is_balanced("(("));
+    }
+
+    #[test]
+    fn test_is_balanced_extra_closing() {
+        assert!(!is_balanced("(+ 1 2))"));
+        assert!(!is_balanced(")"));
     }
 
     #[test]
