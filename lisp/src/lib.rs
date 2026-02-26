@@ -204,6 +204,20 @@
 //! | `(path::func args...)` | `path::func(args...)` |
 //! | `(obj.method args...)` | `obj.method(args...)` |
 //! | `(func args...)` | `func(args...)` |
+//!
+//! ## Comments
+//!
+//! Use Rust-style `///` doc comments instead of Lisp-style `;` comments.
+//! Place them inside `lisp!()` before item definitions:
+//!
+//! ```rust,ignore
+//! lisp!(
+//!     /// Adds two integers
+//!     fn add ((a i32) (b i32)) i32
+//!         (+ a b));
+//! ```
+//!
+//! Between `lisp!()` invocations, use regular Rust `//` comments.
 
 // Re-export proc macros so users see one unified crate.
 pub use lisp_macro::{lisp_assign, lisp_eval, lisp_impl, lisp_trait, lisp_enum, lisp_struct, lisp_fn, lisp_let};
