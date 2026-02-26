@@ -481,7 +481,7 @@ fn eval_variadic_op(operands: &[TokenTree], op: syn::BinOp) -> syn::Expr {
     let mut result = syn::Expr::Binary(syn::ExprBinary {
         attrs: vec![],
         left: Box::new(left),
-        op: op.clone(),
+        op,
         right: Box::new(right),
     });
     for t in &operands[2..] {
@@ -489,7 +489,7 @@ fn eval_variadic_op(operands: &[TokenTree], op: syn::BinOp) -> syn::Expr {
         result = syn::Expr::Binary(syn::ExprBinary {
             attrs: vec![],
             left: Box::new(result),
-            op: op.clone(),
+            op,
             right: Box::new(c),
         });
     }
