@@ -48,25 +48,19 @@ lisp!(impl Evaluator
 
     (fn eval ((&mut self) (expr &Expr)) f64
         (+= self.call_count 1)
-        (rust {
-            match expr {
-                Expr::Literal(v) => *v,
-                Expr::Neg { inner } => {
-                    let val = self.eval(inner);
-                    -val
-                }
-                Expr::BinOp { op, lhs, rhs } => {
-                    let left = self.eval(lhs);
-                    let right = self.eval(rhs);
-                    match op {
-                        BinOpKind::Add => left + right,
-                        BinOpKind::Sub => left - right,
-                        BinOpKind::Mul => left * right,
-                        BinOpKind::Div => left / right,
-                    }
-                }
-            }
-        }))
+        (match expr
+            (Expr::Literal(v) => (deref v))
+            (Expr::Neg { inner } => (block
+                (let val (. self (eval inner)))
+                (neg val)))
+            (Expr::BinOp { op, lhs, rhs } => (block
+                (let left (. self (eval lhs)))
+                (let right (. self (eval rhs)))
+                (match op
+                    (BinOpKind::Add => (+ left right))
+                    (BinOpKind::Sub => (- left right))
+                    (BinOpKind::Mul => (* left right))
+                    (BinOpKind::Div => (/ left right)))))))
 
     (fn get_call_count ((&self)) i32
         (self.call_count))
@@ -104,49 +98,47 @@ lisp!(fn make_lit ((v f64)) Expr
 );
 
 lisp!(fn make_neg ((e Expr)) Expr
-    (rust { Expr::Neg { inner: Box::new(e) } })
+    (new Expr::Neg (inner (Box::new e)))
 );
 
 lisp!(fn make_binop ((op BinOpKind) (lhs Expr) (rhs Expr)) Expr
-    (rust { Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) } })
+    (new Expr::BinOp (op (val op)) (lhs (Box::new lhs)) (rhs (Box::new rhs)))
 );
 
 // =============================================================================
-// Part 7: Tokenizer function (uses rust escape for complex iterator logic)
+// Part 7: Tokenizer function
 // =============================================================================
 
 type TokenVec = Vec<Token>;
 
-lisp!(fn tokenize ((input &str)) TokenVec
-    (rust {
-        let mut tokens = Vec::new();
-        let mut chars = input.chars().peekable();
-        while let Some(&ch) = chars.peek() {
-            match ch {
-                ' ' => { chars.next(); }
-                '+' => { tokens.push(Token::Plus); chars.next(); }
-                '-' => { tokens.push(Token::Minus); chars.next(); }
-                '*' => { tokens.push(Token::Star); chars.next(); }
-                '/' => { tokens.push(Token::Slash); chars.next(); }
-                _ => {
-                    let mut num_str = String::new();
-                    while let Some(&c) = chars.peek() {
-                        if c.is_ascii_digit() || c == '.' {
-                            num_str.push(c);
-                            chars.next();
-                        } else {
-                            break;
-                        }
+fn tokenize(input: &str) -> TokenVec {
+    let mut tokens = Vec::new();
+    let mut chars = input.chars().peekable();
+    while let Some(&ch) = chars.peek() {
+        match ch {
+            ' ' => { chars.next(); }
+            '+' => { tokens.push(Token::Plus); chars.next(); }
+            '-' => { tokens.push(Token::Minus); chars.next(); }
+            '*' => { tokens.push(Token::Star); chars.next(); }
+            '/' => { tokens.push(Token::Slash); chars.next(); }
+            _ => {
+                let mut num_str = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_digit() || c == '.' {
+                        num_str.push(c);
+                        chars.next();
+                    } else {
+                        break;
                     }
-                    if let Ok(n) = num_str.parse::<f64>() {
-                        tokens.push(Token::Num(n));
-                    }
+                }
+                if let Ok(n) = num_str.parse::<f64>() {
+                    tokens.push(Token::Num(n));
                 }
             }
         }
-        tokens
-    })
-);
+    }
+    tokens
+}
 
 // =============================================================================
 // Part 8: Classify token helper
@@ -154,17 +146,15 @@ lisp!(fn tokenize ((input &str)) TokenVec
 
 type OptBinOp = Option<BinOpKind>;
 
-lisp!(fn token_to_op ((tok &Token)) OptBinOp
-    (rust {
-        match tok {
-            Token::Plus => Some(BinOpKind::Add),
-            Token::Minus => Some(BinOpKind::Sub),
-            Token::Star => Some(BinOpKind::Mul),
-            Token::Slash => Some(BinOpKind::Div),
-            _ => None,
-        }
-    })
-);
+fn token_to_op(tok: &Token) -> OptBinOp {
+    match tok {
+        Token::Plus => Some(BinOpKind::Add),
+        Token::Minus => Some(BinOpKind::Sub),
+        Token::Star => Some(BinOpKind::Mul),
+        Token::Slash => Some(BinOpKind::Div),
+        _ => None,
+    }
+}
 
 // =============================================================================
 // Part 9: Sum numbers with a for loop and while loop
@@ -267,7 +257,7 @@ lisp!(impl Stats
     (fn mean ((&self)) f64
         (if (== (self.count) 0)
             0.0
-            (/ (self.sum) (rust { self.count as f64 }))))
+            (/ (self.sum) (as (. self count) f64))))
 
     (fn range ((&self)) f64
         (if (== (self.count) 0)
@@ -277,7 +267,7 @@ lisp!(impl Stats
 
 lisp!(impl core::fmt::Display for Stats
     (fn fmt ((self &Self) (f &mut core::fmt::Formatter)) core::fmt::Result
-        (rust { write!(f, "Stats(n={}, mean={:.2})", self.count, self.mean()) })));
+        (write! f "Stats(n={}, mean={:.2})" (self.count) (. self (mean)))));
 
 // =============================================================================
 // Part 15: Simple stack (Vec wrapper)
@@ -293,19 +283,19 @@ type OptInt = Option<i32>;
 
 lisp!(impl Stack
     (fn new () Stack
-        (rust { Stack { data: Vec::new() } }))
+        (new Stack (data (Vec::new))))
 
     (fn push ((&mut self) (val i32))
-        (rust { self.data.push(val); }))
+        (. self data (push val)))
 
     (fn pop ((&mut self)) OptInt
-        (rust { self.data.pop() }))
+        (. self data (pop)))
 
     (fn is_empty ((&self)) bool
-        (rust { self.data.is_empty() }))
+        (. self data (is_empty)))
 
     (fn size ((&self)) usize
-        (rust { self.data.len() }))
+        (. self data (len)))
 );
 
 // =============================================================================
@@ -603,13 +593,6 @@ fn test_range_and_inclusive_range() {
     lisp!(let mut sum 0);
     lisp!(for i in (..= 1 10) (+= sum i));
     assert_eq!(sum, 55);
-}
-
-#[test]
-fn test_rust_escape_hatch() {
-    // Use rust escape for complex expressions the macro can't handle
-    lisp!(rust let xs: Vec<i32> = (0..10).filter(|x| x % 2 == 0).collect());
-    assert_eq!(xs, vec![0, 2, 4, 6, 8]);
 }
 
 #[test]
