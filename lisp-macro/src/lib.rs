@@ -407,29 +407,6 @@ fn paren_wrap(expr: syn::Expr) -> syn::Expr {
     }
 }
 
-/// Wrap an expression in a block if it isn't already one.
-#[allow(dead_code)]
-fn to_block(expr: syn::Expr) -> syn::Block {
-    match expr {
-        syn::Expr::Block(eb) => eb.block,
-        other => syn::Block {
-            brace_token: syn::token::Brace::default(),
-            stmts: vec![syn::Stmt::Expr(other, None)],
-        },
-    }
-}
-
-/// Convert a LispOutput into a syn::Stmt suitable for block contexts.
-#[allow(dead_code)]
-fn output_to_stmt(output: LispOutput) -> syn::Stmt {
-    match output {
-        LispOutput::Expr(e) => syn::Stmt::Expr(e, None),
-        LispOutput::Stmt(s) => s,
-        LispOutput::Item(i) => syn::Stmt::Item(i),
-        LispOutput::Tokens(t) => syn::Stmt::Expr(syn::Expr::Verbatim(t), None),
-    }
-}
-
 /// Collect body items from eval_lisp_expr results and convert to syn::Stmts.
 /// Adds semicolons to non-last expression stmts for proper separation in blocks.
 fn build_block_stmts(items: Vec<LispOutput>) -> Vec<syn::Stmt> {
@@ -966,8 +943,8 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                             expr: Box::new(e),
                             as_token: syn::token::As::default(),
                             ty: Box::new(syn::parse2::<syn::Type>(ty).unwrap_or_else(|_| {
-                                let raw: TokenStream2 = tokens[2..].iter().cloned().collect();
-                                syn::Type::Verbatim(raw)
+                                let fallback_ty: TokenStream2 = tokens[2..].iter().cloned().collect();
+                                syn::Type::Verbatim(fallback_ty)
                             })),
                         }));
                     }
@@ -1065,7 +1042,8 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                     for e in elems {
                         punct_elems.push(e);
                     }
-                    // Single-element tuples need a trailing comma
+                    // Single-element tuples need a trailing comma:
+                    // tokens.len() == 2 means ["tuple", element], i.e. one element
                     if tokens.len() == 2 {
                         punct_elems.push_punct(syn::token::Comma::default());
                     }
