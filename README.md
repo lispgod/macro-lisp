@@ -214,6 +214,31 @@ cargo run -p macro-lisp-cli -- expand factorial.lisp    # show generated Rust co
 
 See `scripts/` for more example programs and `ROADMAP.md` for the project roadmap.
 
+## Interactive REPL
+
+Start an interactive S-expression evaluation session:
+
+```bash
+cargo run -p macro-lisp-repl
+```
+
+```
+λ> (+ 1 2)
+3
+λ> (fn double ((x i32)) i32 (* x 2))
+λ> (double 21)
+42
+λ> :load scripts/factorial.lisp
+Loaded 2 expression(s) from scripts/factorial.lisp
+λ> (factorial 5)
+120
+λ> :expand (+ 1 2)
+λ> :reset
+λ> :quit
+```
+
+Type `:help` in the REPL for all available commands.
+
 ## License
 
 [MIT](LICENSE)

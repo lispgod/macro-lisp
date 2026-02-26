@@ -113,57 +113,50 @@ The core file loader and compiler driver are complete. Remaining enhancements:
 
 ---
 
-## Phase 3: Interactive REPL
+## ✅ Phase 3: Interactive REPL — COMPLETE
 
-Build an interactive read-eval-print loop for live S-expression evaluation.
+The `macro-lisp-repl` binary provides an interactive read-eval-print loop for live S-expression evaluation.
 
-### 3.1 Core REPL Loop
+### What was built
 
-- **Goal:** Users type S-expressions, see the result immediately.
-- **Design:**
-  ```
-  λ> (+ 1 2)
-  3
-  λ> (let x 42)
-  λ> (* x x)
-  1764
-  ```
-- **Tasks:**
-  - Use [`rustyline`](https://crates.io/crates/rustyline) for line editing, history, and multi-line input detection (balanced parentheses).
-  - Determine expression vs. item context:
-    - **Expressions** (e.g., `(+ 1 2)`) get wrapped in a `fn main()` that prints the result.
-    - **Items** (e.g., `(fn foo ...)`, `(struct Bar ...)`) get accumulated into a persistent preamble.
-  - Maintain a session state that accumulates definitions across interactions:
-    ```
-    λ> (fn double ((x i32)) i32 (* x 2))
-    λ> (double 21)
-    42
-    ```
+- **`macro-lisp-repl/` crate** added to the workspace with:
+  - `rustyline` for line editing and history
+  - Multi-line input detection via balanced-parenthesis tracking (`...>` continuation prompt)
+  - Expression vs. item context detection: `fn`/`struct`/`enum`/`trait`/`impl`/`use`/`type`/`const`/`static`/`mod` → items; everything else → expressions
+  - Session state that accumulates definitions across interactions
+  - REPL commands: `:help`, `:quit`, `:expand`, `:reset`, `:load`
+- **`session.rs`** — manages accumulated item definitions, generates Rust source for evaluation
+- **`commands.rs`** — parses `:command` syntax with aliases (`:h`, `:q`, `:e`, `:l`)
+- **`loader.rs`** — S-expression parser for `:load` command
+- **`compiler.rs`** — persistent work directory with incremental compilation
+- **25 unit tests** for session, commands, and loader modules
 
-### 3.2 Incremental Compilation
+### Usage
 
-- **Goal:** Fast feedback — sub-second response times for simple expressions.
-- **Tasks:**
-  - Cache previously compiled preamble code; only recompile when new items are added.
-  - Use `cargo` with incremental compilation enabled in a persistent temp project.
-  - Explore using `rustc_driver` (nightly) for in-process compilation to avoid process-spawn overhead.
-  - Pre-compile the `macro_lisp` dependency once, reuse the compiled artifacts for all REPL evaluations.
+```bash
+# Start the REPL:
+cargo run -p macro-lisp-repl
 
-### 3.3 Rich REPL Features
+# In the REPL:
+λ> (+ 1 2)
+3
+λ> (fn double ((x i32)) i32 (* x 2))
+λ> (double 21)
+42
+λ> :expand (+ 1 2)
+λ> :load scripts/factorial.lisp
+λ> (factorial 5)
+120
+λ> :reset
+λ> :quit
+```
 
-- **Goal:** A pleasant interactive experience.
-- **Tasks:**
-  - **Parenthesis matching:** Highlight matching parens as the user types.
-  - **Multi-line editing:** Detect unbalanced parentheses and prompt for continuation (`...>`).
-  - **`:commands`:**
-    - `:expand <expr>` — show the Rust code an expression expands to.
-    - `:type <expr>` — (future) infer and display the type of an expression.
-    - `:reset` — clear session state.
-    - `:load <file>` — load and evaluate a `.lisp` file.
-    - `:help` — list available commands.
-    - `:quit` — exit.
-  - **Syntax highlighting** of S-expressions in the terminal (using ANSI colors via [`colored`](https://crates.io/crates/colored) or similar).
-  - **Tab completion** for known identifiers (built-in forms, user-defined names).
+### Phase 3 (remaining): Rich REPL Features
+
+- **Parenthesis matching:** Highlight matching parens as the user types.
+- **Syntax highlighting** of S-expressions in the terminal.
+- **Tab completion** for known identifiers (built-in forms, user-defined names).
+- **`:type <expr>`** — infer and display the type of an expression.
 
 ---
 
@@ -311,9 +304,10 @@ The crown jewel — rich, context-aware error messages that bridge the gap betwe
 | Milestone | Key Deliverable | Status |
 |---|---|---|
 | **Phase 2 (core)** | `macro-lisp run example.lisp` works | ✅ Complete |
+| **Phase 3 (core)** | Interactive REPL with history & `:expand` | ✅ Complete |
 | **Phase 1** | Comprehensive tests, CI hardened | Planned |
 | **Phase 2 (remaining)** | Source map, caching, `fmt` | Planned |
-| **Phase 3** | Interactive REPL with history & `:expand` | Planned |
+| **Phase 3 (remaining)** | Syntax highlighting, tab completion | Planned |
 | **Phase 4** | VS Code extension with LSP diagnostics | Planned |
 | **Phase 5** | Dual-view errors with source spans | Planned |
 
@@ -334,12 +328,14 @@ macro-lisp/
 │       ├── loader.rs     # .lisp file parser with span tracking
 │       ├── codegen.rs    # wrap in lisp!(), generate .rs
 │       └── compiler.rs   # invoke cargo, parse diagnostics
-├── macro-lisp-repl/      # (planned) REPL binary
+├── macro-lisp-repl/      # ✅ REPL binary: interactive evaluation
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs       # rustyline loop
 │       ├── session.rs    # accumulated definitions state
-│       └── commands.rs   # :expand, :type, :reset, etc.
+│       ├── commands.rs   # :expand, :reset, :load, etc.
+│       ├── compiler.rs   # compile & run eval code
+│       └── loader.rs     # S-expression parser for :load
 ├── macro-lisp-lsp/       # (planned) Language server binary
 │   ├── Cargo.toml
 │   └── src/
