@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use macro_lisp::lisp;
 
-// P16: struct-lit with spread syntax and field shorthand
+// P16: struct construction with spread syntax and field shorthand
 
 #[test]
 fn struct_lit_spread() {
