@@ -675,6 +675,8 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                     return LispOutput::Tokens(quote! { #all });
                 }
                 "val" => {
+                    // Supports single idents (val x) and multi-token paths
+                    // like (val std::f64::consts::PI) or (val MyEnum::Variant)
                     if tokens.len() >= 2 {
                         return LispOutput::Expr(eval_lisp_arg(&tokens[1..]));
                     }
