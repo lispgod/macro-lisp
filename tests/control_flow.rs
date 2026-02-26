@@ -189,3 +189,25 @@ fn nested_if() {
                 (format! "{}" x))));
     assert_eq!(result, "FizzBuzz");
 }
+
+#[test]
+fn cond_form() {
+    let classify = |x: i32| -> &'static str {
+        lisp!(cond
+            ((> x 0) "positive")
+            ((< x 0) "negative")
+            (else "zero"))
+    };
+    assert_eq!(classify(5), "positive");
+    assert_eq!(classify(-3), "negative");
+    assert_eq!(classify(0), "zero");
+}
+
+#[test]
+fn cond_two_branches() {
+    let x = 10;
+    let result: &str = lisp!(cond
+        ((> x 5) "big")
+        (else "small"));
+    assert_eq!(result, "big");
+}

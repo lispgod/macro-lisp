@@ -637,6 +637,9 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                 "if" => {
                     return eval_if(&tokens[1..]);
                 }
+                "cond" => {
+                    return eval_cond(&tokens[1..]);
+                }
                 "match" => {
                     // Pass through to lisp! for complex matching
                     let rest: TokenStream2 = tokens.iter().cloned().collect();
@@ -936,6 +939,41 @@ fn eval_if(tokens: &[TokenTree]) -> TokenStream2 {
     } else {
         quote! { if #cond {} }
     }
+}
+
+fn eval_cond(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.is_empty() {
+        return quote! {};
+    }
+
+    if let TokenTree::Group(g) = &tokens[0] {
+        if g.delimiter() == Delimiter::Parenthesis {
+            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+            if !inner.is_empty() {
+                // (else body...) — final else branch
+                if is_ident(&inner[0], "else") {
+                    let body: Vec<TokenStream2> = inner[1..].iter().map(|t| {
+                        eval_lisp_arg(std::slice::from_ref(t))
+                    }).collect();
+                    return quote! { { #(#body);* } };
+                }
+
+                // (cond body...) — regular condition branch
+                let cond = eval_lisp_arg(&inner[0..1]);
+                let body: Vec<TokenStream2> = inner[1..].iter().map(|t| {
+                    eval_lisp_arg(std::slice::from_ref(t))
+                }).collect();
+                let rest = eval_cond(&tokens[1..]);
+
+                if tokens.len() > 1 {
+                    return quote! { if #cond { #(#body);* } else #rest };
+                } else {
+                    return quote! { if #cond { #(#body);* } };
+                }
+            }
+        }
+    }
+    quote! {}
 }
 
 fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {

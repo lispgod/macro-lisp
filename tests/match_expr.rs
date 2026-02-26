@@ -19,3 +19,13 @@ fn match_with_lisp_body() {
         (_ => (+ 10 x)));
     assert_eq!(r, 13);
 }
+
+#[test]
+fn match_multi_body() {
+    let x = 2;
+    let result = lisp!(match x
+        (1 => (let a 10) (+ a 1))
+        (2 => (let b 20) (+ b 2))
+        (_ => 0));
+    assert_eq!(result, 22);
+}

@@ -261,6 +261,12 @@ macro_rules! lisp {
             $($pattern $(| $pat2)* => $crate::lisp_match_arg!($body) ),*
         }
     );
+    // match with multiple body expressions per arm
+    (match $e:tt $( ( $pattern:pat_param $(| $pat2:pat_param)* => $($body:tt)+ ) )* ) => (
+        match $crate::lisp_arg!($e) {
+            $($pattern $(| $pat2)* => { $($crate::lisp_arg!($body));* }),*
+        }
+    );
 
     // ── Bindings ─────────────────────────────────────────────
 
@@ -355,6 +361,12 @@ macro_rules! lisp {
     (if let ( $pattern:pat = $($cond:tt)* ) $e1:tt $e2:tt) => (if let $pattern = $crate::lisp_arg!($($cond)*) { $crate::lisp_arg!($e1) } else { $crate::lisp_arg!($e2) });
     (if let ( $pattern:pat = $($cond:tt)* ) $e:tt) => (if let $pattern = $crate::lisp_arg!($($cond)*) { $crate::lisp_arg!($e) });
 
+    // cond — multi-branch conditional
+    (cond (else $($body:tt)+)) => ({ $($crate::lisp!($body));* });
+    (cond ($cond:tt $($body:tt)+) $( ($($rest:tt)+) )*) => (
+        if $crate::lisp_arg!($cond) { $($crate::lisp!($body));* } else { $crate::lisp!(cond $( ($($rest)+) )*) }
+    );
+
     // if
     (if ( $($cond:tt)* ) $e1:tt $e2:tt) => (if $crate::lisp!($($cond)*) { $crate::lisp_arg!($e1) }else{ $crate::lisp_arg!($e2) });
     (if ( $($cond:tt)* ) $e:tt) => (if $crate::lisp!($($cond)*) { $crate::lisp_arg!($e) });
@@ -385,6 +397,25 @@ macro_rules! lisp {
     (fn move () $( ( $($e:tt)* ) )+ ) => (move || { $( $crate::lisp!( $($e)* ) );* });
     // zero-parameter closure (fn () body...)
     (fn () $( ( $($e:tt)* ) )+ ) => (|| { $( $crate::lisp!( $($e)* ) );* });
+
+    // zero-param closure with return type
+    (fn move () -> $ret:tt $( ( $($e:tt)* ) )+ ) => (move || -> $ret { $( $crate::lisp!( $($e)* ) );* });
+    (fn () -> $ret:tt $( ( $($e:tt)* ) )+ ) => (|| -> $ret { $( $crate::lisp!( $($e)* ) );* });
+
+    // closure with return type — typed params
+    (fn move ( $( ( $name:ident $typ:ty ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        move | $($name : $typ),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
+    (fn ( $( ( $name:ident $typ:ty ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        | $($name : $typ),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
+    // closure with return type — untyped params
+    (fn move ( $( ( $name:ident ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        move | $($name),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
+    (fn ( $( ( $name:ident ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        | $($name),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
 
     // closure (fn move) — untyped params
     (fn move ( $( ( $name:ident ) )+ )
