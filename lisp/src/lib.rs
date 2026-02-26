@@ -210,11 +210,6 @@ pub use lisp_macro::{lisp_assign, lisp_eval, lisp_impl, lisp_trait, lisp_enum, l
 
 #[macro_export]
 macro_rules! lisp {
-    // ── Literals ─────────────────────────────────────────────
-    (false) => (false);
-    (true) => (true);
-    (self $(. $e:tt)* ) => (self $(. $e)* );
-
     // ── Type & Item Definitions (unified visibility via $vis:vis) ──
 
     // struct — dispatch all forms to proc macro
@@ -266,54 +261,12 @@ macro_rules! lisp {
          }
     );
 
-    // ── Closures ─────────────────────────────────────────────
-
-    // zero-parameter closure (fn move () body...)
-    (fn move () $( ( $($e:tt)* ) )+ ) => (move || { $( $crate::lisp!( $($e)* ) );* });
-    // zero-parameter closure (fn () body...)
-    (fn () $( ( $($e:tt)* ) )+ ) => (|| { $( $crate::lisp!( $($e)* ) );* });
-
-    // zero-param closure with return type
-    (fn move () -> $ret:tt $( ( $($e:tt)* ) )+ ) => (move || -> $ret { $( $crate::lisp!( $($e)* ) );* });
-    (fn () -> $ret:tt $( ( $($e:tt)* ) )+ ) => (|| -> $ret { $( $crate::lisp!( $($e)* ) );* });
-
-    // closure with return type — typed params
-    (fn move ( $( ( $name:ident $typ:ty ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
-        move | $($name : $typ),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
-    );
-    (fn ( $( ( $name:ident $typ:ty ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
-        | $($name : $typ),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
-    );
-    // closure with return type — untyped params
-    (fn move ( $( ( $name:ident ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
-        move | $($name),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
-    );
-    (fn ( $( ( $name:ident ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
-        | $($name),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
-    );
-
-    // closure (fn move) — untyped params
-    (fn move ( $( ( $name:ident ) )+ )
-        $( ( $($e:tt)* ))*
-    ) => (move | $($name),* |{ $( $crate::lisp!( $($e)* ) );* });
-
-    // closure (fn move)
-    (fn move ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (move | $($name : $typ),* |{ $( $crate::lisp!( $($e)* ) );* });
-
-    // closure (fn) — untyped params
-    (fn ( $( ( $name:ident ) )+ )
-        $( ( $($e:tt)* ))*
-    ) => (| $($name),* |{ $( $crate::lisp!( $($e)* ) );* });
-
-    // closure (fn)
-    (fn ( $( ( $name:ident $typ:ty ) )* )
-        $( ( $($e:tt)* ))*
-    ) => (| $($name : $typ),* |{ $( $crate::lisp!( $($e)* ) );* });
+    // ── Closures (fn move ...) — must precede named fn arms since `move` matches $sym:ident ──
+    // Closures starting with `fn (` naturally fall through to the catch-all because `(` is not an ident.
+    // But `fn move ...` would match the named fn arm with $sym = move, so we intercept it here.
+    (fn move $($rest:tt)+) => ($crate::lisp_eval!(fn move $($rest)+));
 
     // ── Named Functions (unified visibility + modifier dispatch to proc macro) ─
-    // Closures above are matched first since they start with `fn (` not `fn $name`.
     // $vis:vis collapses pub / pub(crate) / pub(super) / empty into one rule per qualifier.
     ( $(#[$m:meta])* $vis:vis unsafe fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis unsafe fn $sym $($rest)+); );
     ( $(#[$m:meta])* $vis:vis async fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis async fn $sym $($rest)+); );
@@ -321,7 +274,9 @@ macro_rules! lisp {
     ( $(#[$m:meta])* $vis:vis fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis fn $sym $($rest)+); );
 
     // ── Rust escape ──────────────────────────────────────────
-    // Uses $st:stmt fragment for correct statement-level parsing
+    // Uses $st:stmt fragment for correct statement-level parsing.
+    // Kept in macro_rules! because $st:stmt ensures proper statement boundaries
+    // that raw token passthrough in the proc-macro cannot replicate.
     (rust { $($t:tt)* }) => ({ $($t)* });
     (rust $( $st:stmt )* ) => ( $($st);* );
 
