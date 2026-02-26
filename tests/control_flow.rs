@@ -2,6 +2,7 @@
 #![allow(unused_mut)]
 #![allow(unused_assignments)]
 #![allow(unreachable_code)]
+#![allow(dead_code)]
 
 use macro_lisp::lisp;
 
@@ -219,4 +220,145 @@ fn for_pattern_destructuring() {
     lisp!(for (i, _name) in pairs
         (+= sum i));
     assert_eq!(sum, 6);
+}
+
+// ── match_expr tests ────────────────────────────────────────
+
+#[test]
+fn match_bare_expr() {
+    let x = 2;
+    let r: &str = lisp!(match x
+        (1 => "one")
+        (2 => "two")
+        (_ => "other"));
+    assert_eq!(r, "two");
+}
+
+#[test]
+fn match_with_lisp_body() {
+    let x = 3;
+    let r: i32 = lisp!(match x
+        (1 => (+ 10 1))
+        (2 => (+ 10 2))
+        (_ => (+ 10 x)));
+    assert_eq!(r, 13);
+}
+
+#[test]
+fn match_multi_body() {
+    let x = 2;
+    let result = lisp!(match x
+        (1 => (let a 10) (+ a 1))
+        (2 => (let b 20) (+ b 2))
+        (_ => 0));
+    assert_eq!(result, 22);
+}
+
+#[test]
+fn match_with_guards() {
+    let classify = |x: i32| -> &'static str {
+        lisp!(match x
+            (n if (> n 0) => "positive")
+            (n if (< n 0) => "negative")
+            (_ => "zero"))
+    };
+    assert_eq!(classify(5), "positive");
+    assert_eq!(classify(-3), "negative");
+    assert_eq!(classify(0), "zero");
+}
+
+// ── patterns tests ──────────────────────────────────────────
+
+#[test]
+fn let_tuple_destructure() {
+    lisp!(let (a, b) (tuple 1 2));
+    assert_eq!(a, 1);
+    assert_eq!(b, 2);
+}
+
+#[test]
+fn let_nested_tuple_destructure() {
+    lisp!(let (a, (b, c)) (tuple 1 (tuple 2 3)));
+    assert_eq!(a, 1);
+    assert_eq!(b, 2);
+    assert_eq!(c, 3);
+}
+
+#[test]
+fn let_struct_destructure() {
+    struct Point { x: i32, y: i32 }
+    let p = Point { x: 10, y: 20 };
+    lisp!(let Point { x, y } p);
+    assert_eq!(x, 10);
+    assert_eq!(y, 20);
+}
+
+#[test]
+fn match_literal_patterns() {
+    let val = 2;
+    let result = lisp!(match val
+        (1 => (10))
+        (2 => (20))
+        (_ => (0)));
+    assert_eq!(result, 20);
+}
+
+#[test]
+fn match_enum_pattern() {
+    let opt: Option<i32> = Some(42);
+    let result = lisp!(match opt
+        (Some(x) => (x))
+        (None => (0)));
+    assert_eq!(result, 42);
+}
+
+#[test]
+fn match_alternative_patterns() {
+    let val = 3;
+    let result = lisp!(match val
+        (1 | 2 => (10))
+        (3 | 4 => (20))
+        (_ => (0)));
+    assert_eq!(result, 20);
+}
+
+#[test]
+fn match_wildcard() {
+    let val = 999;
+    let result = lisp!(match val
+        (1 => (1))
+        (_ => (0)));
+    assert_eq!(result, 0);
+}
+
+#[test]
+fn if_let_some() {
+    let opt = Some(7);
+    let result = lisp!(if let (Some(x) = opt) (+ x 1) 0);
+    assert_eq!(result, 8);
+}
+
+#[test]
+fn if_let_none() {
+    let opt: Option<i32> = None;
+    let result = lisp!(if let (Some(x) = opt) (+ x 1) 0);
+    assert_eq!(result, 0);
+}
+
+#[test]
+fn while_let_pattern() {
+    lisp!(block
+        (let mut stack (vec 1 2 3))
+        (let mut sum 0)
+        (while let (Some(top) = (stack.pop))
+            (+= sum top))
+        (assert_eq! 6 sum)
+    );
+}
+
+#[test]
+fn for_in_range_simple() {
+    lisp!(let mut sum 0);
+    lisp!(for i in (.. 0 5) (+= sum i));
+    assert_eq!(sum, 10);
 }
