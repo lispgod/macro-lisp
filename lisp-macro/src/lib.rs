@@ -533,8 +533,17 @@ fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
 }
 
 /// Evaluate a lisp expression (the contents of a parenthesized group) into Rust code.
-/// This is a mini-evaluator that handles the most common patterns directly,
-/// avoiding the need to delegate to `::lisp::lisp!` (which has hygiene issues with `self`).
+/// Evaluate a lisp S-expression token sequence into Rust code.
+///
+/// This is the **single source of truth** for all S-expression → Rust
+/// transformation. It is called by `lisp_eval!`, by `eval_lisp_arg` for
+/// parenthesized sub-expressions, and by item evaluators (`lisp_fn!`,
+/// `lisp_impl!`, etc.) for body expressions.
+///
+/// **S-expression semantic for identifiers**: A single non-keyword identifier
+/// is treated as a zero-argument function call (`f` → `f()`), matching the
+/// S-expression convention where `(f)` means "call f". To reference a variable
+/// value, use `(val x)` or pass it directly without lisp wrapping.
 fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
     if tokens.is_empty() {
         return quote! {};
@@ -1244,6 +1253,10 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
                         let var_type = validate_type(raw_type);
                         i += 1;
                         if i < tokens.len() {
+                            // Consume ALL remaining tokens as the value expression.
+                            // This handles multi-token values like `Some(0)` which are
+                            // an ident followed by a paren group. In S-expression let,
+                            // the form is (let (var Type) val) with no trailing tokens.
                             let val = eval_lisp_arg(&tokens[i..]);
                             if is_mut {
                                 return quote_spanned! { span => let mut #var_name: #var_type = #val; };
@@ -1261,6 +1274,8 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
     let span = var_name.span();
     i += 1;
     if i < tokens.len() {
+        // Consume ALL remaining tokens as the value. Handles multi-token values
+        // like `Some(0)` (ident + paren group) and `Vec::new()` (path + parens).
         let val = eval_lisp_arg(&tokens[i..]);
         if is_mut {
             quote_spanned! { span => let mut #var_name = #val; }
