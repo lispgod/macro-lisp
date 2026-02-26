@@ -711,6 +711,12 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                     return quote! { (#(#args),*) };
                 }
                 "array" => {
+                    // Check for array-repeat: (array - repeat val count) → [val; count]
+                    if tokens.len() == 5 && is_punct(&tokens[1], '-') && is_ident(&tokens[2], "repeat") {
+                        let val = eval_lisp_arg(&tokens[3..4]);
+                        let count = eval_lisp_arg(&tokens[4..5]);
+                        return quote! { [#val; #count] };
+                    }
                     let args: Vec<TokenStream2> = tokens[1..]
                         .iter()
                         .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
