@@ -119,6 +119,17 @@ pub(crate) fn eval_cond(tokens: &[TokenTree]) -> syn::Expr {
     verbatim_expr(quote! {})
 }
 
+/// Helper: build a `syn::Stmt::Local` (let binding).
+fn make_local(pat: syn::Pat, init: Option<syn::Expr>) -> syn::Stmt {
+    syn::Stmt::Local(syn::Local {
+        attrs: vec![], let_token: syn::token::Let::default(), pat,
+        init: init.map(|e| syn::LocalInit {
+            eq_token: syn::token::Eq::default(), expr: Box::new(e), diverge: None,
+        }),
+        semi_token: syn::token::Semi::default(),
+    })
+}
+
 pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
     if tokens.is_empty() { return LispOutput::Tokens(quote! {}); }
 
@@ -190,7 +201,7 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
         }
     }
 
-    // (let mut var val) or (let var val)
+    // (let mut var val) or (let var val) — simple cases → syn::Stmt::Local
     let mut i = 0;
     let is_mut = is_ident(&tokens[i], "mut");
     if is_mut { i += 1; }
@@ -198,43 +209,57 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
     if i >= tokens.len() { return LispOutput::Tokens(quote! {}); }
 
     // Check for typed let: (let (var Type) val)
-    // Only treat as typed let if the first inner element is an ident
-    // and the remainder is a valid Rust type (to avoid misinterpreting patterns like (a, b)).
     if let TokenTree::Group(g) = &tokens[i] {
         if g.delimiter() == Delimiter::Parenthesis {
             let inner: Vec<TokenTree> = g.stream().into_iter().collect();
             if inner.len() >= 2 {
-                if let TokenTree::Ident(_) = &inner[0] {
+                if let TokenTree::Ident(var_ident) = &inner[0] {
                     let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
-                    if syn::parse2::<syn::Type>(raw_type.clone()).is_ok() {
-                        let var_name = &inner[0];
-                        let span = var_name.span();
-                        let var_type = validate_type(raw_type);
+                    if let Ok(ty) = syn::parse2::<syn::Type>(raw_type) {
+                        let mut_token = if is_mut { Some(syn::token::Mut::default()) } else { None };
+                        let pat = syn::Pat::Type(syn::PatType {
+                            attrs: vec![],
+                            pat: Box::new(syn::Pat::Ident(syn::PatIdent {
+                                attrs: vec![], by_ref: None,
+                                mutability: mut_token,
+                                ident: var_ident.clone(),
+                                subpat: None,
+                            })),
+                            colon_token: syn::token::Colon::default(),
+                            ty: Box::new(ty),
+                        });
                         i += 1;
-                        if i < tokens.len() {
-                            // Consume ALL remaining tokens as the value expression.
-                            // This handles multi-token values like `Some(0)` which are
-                            // an ident followed by a paren group. In S-expression let,
-                            // the form is (let (var Type) val) with no trailing tokens.
-                            let val = eval_lisp_arg(&tokens[i..]);
-                            if is_mut {
-                                return LispOutput::Tokens(quote_spanned! { span => let mut #var_name: #var_type = #val; });
-                            } else {
-                                return LispOutput::Tokens(quote_spanned! { span => let #var_name: #var_type = #val; });
-                            }
-                        }
+                        let init = if i < tokens.len() {
+                            Some(eval_lisp_arg(&tokens[i..]))
+                        } else { None };
+                        return LispOutput::Stmt(make_local(pat, init));
                     }
                 }
             }
         }
     }
 
+    // Simple untyped let: (let var val) or (let mut var val)
+    if let TokenTree::Ident(var_ident) = &tokens[i] {
+        let mut_token = if is_mut { Some(syn::token::Mut::default()) } else { None };
+        let pat = syn::Pat::Ident(syn::PatIdent {
+            attrs: vec![], by_ref: None,
+            mutability: mut_token,
+            ident: var_ident.clone(),
+            subpat: None,
+        });
+        i += 1;
+        let init = if i < tokens.len() {
+            Some(eval_lisp_arg(&tokens[i..]))
+        } else { None };
+        return LispOutput::Stmt(make_local(pat, init));
+    }
+
+    // Fallback for non-ident patterns
     let var_name = &tokens[i];
     let span = var_name.span();
     i += 1;
     if i < tokens.len() {
-        // Consume ALL remaining tokens as the value. Handles multi-token values
-        // like `Some(0)` (ident + paren group) and `Vec::new()` (path + parens).
         let val = eval_lisp_arg(&tokens[i..]);
         if is_mut {
             LispOutput::Tokens(quote_spanned! { span => let mut #var_name = #val; })
@@ -568,7 +593,7 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
     if is_move { i += 1; }
 
     // Parse parameter list (a paren group containing (name Type) pairs)
-    let mut params = Vec::new();
+    let mut inputs = syn::punctuated::Punctuated::new();
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
             if g.delimiter() == Delimiter::Parenthesis {
@@ -581,10 +606,12 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
                                 let name = &inner[0];
                                 let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
                                 let typ = validate_type(raw_type);
-                                params.push(quote! { #name: #typ });
+                                let pat_ts = quote! { #name: #typ };
+                                inputs.push(parse_pat(pat_ts));
                             } else if inner.len() == 1 {
                                 let name = &inner[0];
-                                params.push(quote! { #name });
+                                let pat_ts = quote! { #name };
+                                inputs.push(parse_pat(pat_ts));
                             }
                         }
                     }
@@ -595,7 +622,7 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
     }
 
     // Check for return type: -> Type
-    let mut return_type = None;
+    let mut output = syn::ReturnType::Default;
     if i + 1 < tokens.len() {
         if let TokenTree::Punct(p1) = &tokens[i] {
             if p1.as_char() == '-' {
@@ -614,7 +641,15 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
                         }
                         if !rt_tokens.is_empty() {
                             let rt: TokenStream2 = rt_tokens.into_iter().collect();
-                            return_type = Some(validate_type(rt));
+                            let validated = validate_type(rt);
+                            if let Ok(ty) = syn::parse2::<syn::Type>(validated.clone()) {
+                                output = syn::ReturnType::Type(syn::token::RArrow::default(), Box::new(ty));
+                            } else {
+                                output = syn::ReturnType::Type(
+                                    syn::token::RArrow::default(),
+                                    Box::new(syn::Type::Verbatim(validated)),
+                                );
+                            }
                         }
                     }
                 }
@@ -624,12 +659,18 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
 
     // Parse body items
     let body_items = parse_body_items(tokens, i);
+    let body_block = syn::Expr::Block(syn::ExprBlock {
+        attrs: vec![], label: None,
+        block: syn::Block {
+            brace_token: syn::token::Brace::default(),
+            stmts: build_block_stmts(body_items),
+        },
+    });
 
-    let move_kw = if is_move { quote! { move } } else { quote! {} };
-    let ret = match &return_type {
-        Some(r) => quote! { -> #r },
-        None => quote! {},
-    };
-
-    verbatim_expr(quote! { #move_kw |#(#params),*| #ret { #(#body_items);* } })
+    syn::Expr::Closure(syn::ExprClosure {
+        attrs: vec![], lifetimes: None, constness: None, movability: None, asyncness: None,
+        capture: if is_move { Some(syn::token::Move::default()) } else { None },
+        or1_token: syn::token::Or::default(), inputs, or2_token: syn::token::Or::default(),
+        output, body: Box::new(body_block),
+    })
 }
