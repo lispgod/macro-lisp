@@ -519,23 +519,51 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
             let name = id.to_string();
             match name.as_str() {
                 "new" => {
-                    // (new Name (field val) ...)
+                    // (new Name (field val) ...) or (new Name (field val) (.. base))
+                    // Also handle tuple struct: (new Name val1 val2) → Name(val1, val2)
+                    // Also handle path-qualified: (new Name::Variant (field val) ...)
                     if tokens.len() >= 2 {
-                        let struct_name = &tokens[1];
+                        let (path_tokens, remaining) = consume_type_path(&tokens[1..]);
+                        let struct_name_ts: TokenStream2 = path_tokens.into_iter().collect();
+                        let field_start = tokens.len() - remaining.len();
+
                         let mut fields = Vec::new();
-                        for tt in &tokens[2..] {
+                        let mut spread = None;
+                        let mut has_bare_args = false;
+
+                        for tt in &tokens[field_start..] {
                             if let TokenTree::Group(g) = tt {
                                 if g.delimiter() == Delimiter::Parenthesis {
                                     let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                    // Check for (.. base) spread syntax
+                                    if inner.len() >= 2 && is_punct(&inner[0], '.') && is_punct(&inner[1], '.') {
+                                        let base = eval_lisp_arg(&inner[2..]);
+                                        spread = Some(quote! { ..#base });
+                                        continue;
+                                    }
                                     if inner.len() >= 2 {
                                         let fname = &inner[0];
                                         let fval = eval_lisp_arg(&inner[1..]);
                                         fields.push(quote! { #fname: #fval });
                                     }
                                 }
+                            } else {
+                                has_bare_args = true;
                             }
                         }
-                        return quote! { #struct_name { #(#fields),* } };
+
+                        if has_bare_args && fields.is_empty() {
+                            let args: Vec<TokenStream2> = tokens[field_start..]
+                                .iter()
+                                .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                                .collect();
+                            return quote! { #struct_name_ts(#(#args),*) };
+                        }
+
+                        if let Some(spread_ts) = spread {
+                            return quote! { #struct_name_ts { #(#fields,)* #spread_ts } };
+                        }
+                        return quote! { #struct_name_ts { #(#fields),* } };
                     }
                 }
                 "r#struct" | "struct" => {

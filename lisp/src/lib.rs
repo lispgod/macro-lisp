@@ -483,10 +483,19 @@ macro_rules! lisp {
     (. $obj:tt $( $name:ident )+) => ($crate::lisp_arg!($obj) $(.$name)+);
 
     // ── Construction ─────────────────────────────────────────
+    // new (path-qualified struct/enum variant construction with spread)
+    (new $name:ident $(:: $name2:ident)+ $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name $(:: $name2)+ { $( $field: $crate::lisp_arg!($val), )* ..$base } );
+    // new (path-qualified struct/enum variant construction)
+    (new $name:ident $(:: $name2:ident)+ $( ($field:ident $val:tt) )* ) => ( $name $(:: $name2)+ { $( $field: $crate::lisp_arg!($val) ),* } );
+    // new (path-qualified shorthand)
+    (new $name:ident $(:: $name2:ident)+ $( $field:ident )+ ) => ( $name $(:: $name2)+ { $( $field ),* } );
     // new (struct construction)
     (new $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
     (new $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
     (new $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
+    // new (tuple struct construction): (new Name val1 val2) → Name(val1, val2)
+    (new $name:ident $(:: $name2:ident)+ $($e:tt)+) => ( $name $(:: $name2)+ ( $($crate::lisp_arg!($e)),* ) );
+    (new $name:ident $($e:tt)+) => ( $name ( $($crate::lisp_arg!($e)),* ) );
     // ── Len ──────────────────────────────────────────────────
 
     // ── Collections ──────────────────────────────────────────
