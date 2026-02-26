@@ -856,6 +856,32 @@ Applies to: `struct`, `enum`, `trait`, `fn`, `const`, `static`, `type`, `mod`.
 
 ---
 
+## Comments
+
+Use Rust-style `///` doc comments instead of Lisp-style `;` comments. Place them inside `lisp!()` before item definitions:
+
+```rust
+lisp!(
+    /// Adds two integers
+    fn add ((a i32) (b i32)) i32
+        (+ a b));
+
+/// You can also use `#[doc = "..."]` directly
+lisp!(#[doc = "A 2D point"] struct Point ((x i32) (y i32)));
+```
+
+Between `lisp!()` invocations, use regular Rust `//` comments:
+
+```rust
+// Bind a variable
+lisp!(let x 42);
+
+// Use it in an expression
+lisp!(let y (+ x 1));
+```
+
+---
+
 ## Special Forms
 
 | Form | Description |

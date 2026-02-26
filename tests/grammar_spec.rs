@@ -1,3 +1,8 @@
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(dead_code)]
+#![allow(unused_unsafe)]
+
 /// Tests for all new grammar specification forms.
 /// Each test validates a specific form from the Complete Grammar — Step 1.
 
@@ -492,4 +497,260 @@ lisp!(const fn fib_const ((n u32)) u32
 fn const_fn_fibonacci() {
     const FIB_10: u32 = fib_const(10);
     assert_eq!(FIB_10, 55);
+}
+
+// ── module tests ────────────────────────────────────────────
+
+// Test extern crate form
+lisp!(extern crate std);
+
+lisp!(mod module_test
+    (fn do_nothing())
+
+    (fn hello () ()
+        (println! "Hello")
+    )
+
+    (fn add ((x i32) (y i32)) i32
+        (+ x y)
+    )
+
+    (#[test] fn test_add () ()
+        (let num (add 1 2))
+        (assert_eq! 3 num)
+    )
+);
+
+#[test]
+fn extern_crate_form() {
+    // extern crate std compiles at module level above
+    assert!(true);
+}
+
+// ── async_unsafe tests ──────────────────────────────────────
+
+#[test]
+fn unsafe_block() {
+    let x = lisp!(unsafe
+        (rust let x: i32 = 42)
+        (+ x 0)
+    );
+    assert_eq!(x, 42);
+}
+
+// Note: async fn tests would require a runtime like tokio.
+// We test that the macro at least expands to valid syntax for async fn.
+// The await form requires an async context to actually run.
+
+#[test]
+fn unsafe_raw_pointer() {
+    let x = 42i32;
+    let p = &x as *const i32;
+    let val = lisp!(unsafe (rust let v = *p) (+ v 0));
+    assert_eq!(val, 42);
+}
+
+// ── visibility tests ────────────────────────────────────────
+
+// P14: Visibility beyond pub — all item forms support $vis:vis uniformly.
+
+lisp!(pub(crate) fn crate_internal ((x i32)) i32
+    (+ x 1));
+
+#[test]
+fn pub_crate_fn() {
+    assert_eq!(crate_internal(5), 6);
+}
+
+lisp!(pub(crate) const CRATE_CONST i32 = 42);
+
+#[test]
+fn pub_crate_const() {
+    assert_eq!(CRATE_CONST, 42);
+}
+
+lisp!(pub(crate) type CrateInt = i32);
+
+#[test]
+fn pub_crate_type_alias() {
+    let x: CrateInt = 10;
+    assert_eq!(x, 10);
+}
+
+// Unified $vis:vis support: struct, enum, trait, static, mod
+
+lisp!(pub(crate) struct VisStruct ((x i32)));
+
+#[test]
+fn pub_crate_struct() {
+    let s = VisStruct { x: 5 };
+    assert_eq!(s.x, 5);
+}
+
+lisp!(pub(crate) static VIS_STATIC i32 = 99);
+
+#[test]
+fn pub_crate_static() {
+    assert_eq!(VIS_STATIC, 99);
+}
+
+lisp!(pub(crate) const fn crate_const_fn ((x i32)) i32
+    (+ x 10));
+
+#[test]
+fn pub_crate_const_fn() {
+    assert_eq!(crate_const_fn(5), 15);
+}
+
+mod visibility_test {
+    use macro_lisp::lisp;
+
+    lisp!(pub(super) fn pub_super_fn () i32 42);
+
+    pub mod inner {
+        use macro_lisp::lisp;
+        lisp!(pub(super) fn inner_pub_super () i32 99);
+    }
+
+    pub fn get_inner_val() -> i32 {
+        inner::inner_pub_super()
+    }
+}
+
+#[test]
+fn pub_super_fn() {
+    assert_eq!(visibility_test::pub_super_fn(), 42);
+    assert_eq!(visibility_test::get_inner_val(), 99);
+}
+
+// ── unified_dispatch tests ──────────────────────────────────
+
+// Named fn: all modifier combinations
+
+lisp!(fn bare_fn ((x i32)) i32 (+ x 1));
+lisp!(pub fn pub_fn ((x i32)) i32 (+ x 2));
+lisp!(const fn dispatch_const_fn ((x i32)) i32 (+ x 3));
+lisp!(pub const fn dispatch_pub_const_fn ((x i32)) i32 (+ x 4));
+lisp!(unsafe fn dispatch_unsafe_fn ((x i32)) i32 (+ x 5));
+lisp!(pub unsafe fn dispatch_pub_unsafe_fn ((x i32)) i32 (+ x 6));
+lisp!(async fn async_fn ((x i32)) i32 (+ x 7));
+lisp!(pub async fn pub_async_fn ((x i32)) i32 (+ x 8));
+lisp!(extern "C" fn dispatch_extern_fn ((x i32)) i32 (+ x 9));
+lisp!(pub extern "C" fn dispatch_pub_extern_fn ((x i32)) i32 (+ x 10));
+
+#[test]
+fn all_fn_modifiers() {
+    assert_eq!(bare_fn(0), 1);
+    assert_eq!(pub_fn(0), 2);
+    assert_eq!(dispatch_const_fn(0), 3);
+    assert_eq!(dispatch_pub_const_fn(0), 4);
+    assert_eq!(unsafe { dispatch_unsafe_fn(0) }, 5);
+    assert_eq!(unsafe { dispatch_pub_unsafe_fn(0) }, 6);
+    assert_eq!(dispatch_extern_fn(0), 9);
+    assert_eq!(dispatch_pub_extern_fn(0), 10);
+}
+
+// Named fn: void (no return type)
+
+lisp!(fn void_fn () (let _x 42));
+lisp!(pub fn pub_void_fn () (let _x 42));
+
+#[test]
+fn void_fns() {
+    void_fn();
+    pub_void_fn();
+}
+
+// Named fn: () unit return type
+
+lisp!(fn unit_return_fn () () (let _x 42));
+
+#[test]
+fn unit_return_type() {
+    let result: () = unit_return_fn();
+    assert_eq!(result, ());
+}
+
+// Named fn: with generics
+
+lisp!(fn generic_fn <T: std::fmt::Debug> ((x T)) (println! "{:?}" x));
+
+#[test]
+fn generics_through_dispatch() {
+    generic_fn(42);
+    generic_fn("hello");
+}
+
+// Struct: all forms
+
+lisp!(struct UnitStruct);
+lisp!(pub struct PubUnitStruct);
+lisp!(struct TupleStruct (i32 i32));
+lisp!(pub struct PubTupleStruct (i32 String));
+lisp!(struct NamedStruct ((x i32) (y i32)));
+lisp!(pub struct PubNamedStruct ((x i32) (y i32)));
+lisp!(struct PubFieldStruct (pub (x i32) (y i32)));
+lisp!(struct MixedFieldStruct (pub (x i32)) ((y i32)));
+
+#[test]
+fn struct_unit() {
+    let _s = UnitStruct;
+    let _s = PubUnitStruct;
+}
+
+#[test]
+fn struct_tuple() {
+    let s = TupleStruct(1, 2);
+    assert_eq!(s.0, 1);
+    assert_eq!(s.1, 2);
+
+    let s = PubTupleStruct(42, String::from("hello"));
+    assert_eq!(s.0, 42);
+}
+
+#[test]
+fn struct_named() {
+    let s = NamedStruct { x: 1, y: 2 };
+    assert_eq!(s.x, 1);
+    assert_eq!(s.y, 2);
+
+    let s = PubNamedStruct { x: 3, y: 4 };
+    assert_eq!(s.x, 3);
+}
+
+#[test]
+fn struct_pub_fields() {
+    let s = PubFieldStruct { x: 10, y: 20 };
+    assert_eq!(s.x, 10);
+    assert_eq!(s.y, 20);
+}
+
+#[test]
+fn struct_mixed_fields() {
+    let s = MixedFieldStruct { x: 1, y: 2 };
+    assert_eq!(s.x, 1);
+}
+
+// Struct: with generics
+
+lisp!(struct GenericStruct <T> ((value T)));
+
+#[test]
+fn struct_generics() {
+    let s = GenericStruct { value: 42 };
+    assert_eq!(s.value, 42);
+    let s = GenericStruct { value: "hello" };
+    assert_eq!(s.value, "hello");
+}
+
+// Struct: with derive
+
+lisp!(#[derive(Debug, Clone, PartialEq)] struct DerivedStruct ((x i32)));
+
+#[test]
+fn struct_derive() {
+    let s = DerivedStruct { x: 42 };
+    let s2 = s.clone();
+    assert_eq!(s, s2);
+    assert_eq!(format!("{:?}", s), "DerivedStruct { x: 42 }");
 }

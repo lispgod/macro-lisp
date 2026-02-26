@@ -157,6 +157,20 @@ lisp!(pub mod utils
         (println! "I'm a helper")));
 ```
 
+### Comments
+
+Use Rust-style `///` doc comments instead of Lisp-style `;` comments:
+
+```rust
+lisp!(
+    /// Adds two integers
+    fn add ((a i32) (b i32)) i32
+        (+ a b));
+
+// Regular Rust comments between lisp! invocations
+lisp!(let x (add 1 2));
+```
+
 ## Full Example: FizzBuzz
 
 ```rust
