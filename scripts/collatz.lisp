@@ -14,5 +14,5 @@
 (fn main () ()
     (println! "Collatz conjecture — steps to reach 1:")
     (for i in (..= 1 30)
-        (let n (rust { i as i64 }))
+        (let n (as i i64))
         (println! "  collatz({}) = {} steps" i (collatz_steps n))))

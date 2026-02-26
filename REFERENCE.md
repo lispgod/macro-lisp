@@ -654,7 +654,7 @@ lisp!(impl core::fmt::Display for Point
 ```
 lisp!(impl<T: Clone> Container<T>
     (fn unwrap ((&self)) T
-        (rust { self.val.clone() })))
+        (. self val (clone))))
 →  impl<T: Clone> Container<T> { fn unwrap(&self) -> T { self.val.clone() } }
 ```
 
@@ -815,29 +815,41 @@ lisp!(#[derive(Debug, PartialEq)]
 | `(unsafe fn name ...)` | `unsafe fn name(...) { ... }` |
 
 ```
-lisp!(unsafe (rust { *ptr }))  →  unsafe { *ptr }
+lisp!(unsafe (deref ptr))  →  unsafe { *ptr }
 lisp!(unsafe fn read_ptr ((p *const i32)) i32 (deref p))
 →  unsafe fn read_ptr(p: *const i32) -> i32 { *p }
 ```
 
 ---
 
-## Escape Hatch
+## Method Calls on Expressions
+
+Use the `(. expr (method args...))` form to call methods on any expression, including computed values:
 
 | Syntax | Output |
 |---|---|
-| `(rust { code })` | `{ code }` |
-| `(rust stmt...)` | `stmt; ...` |
-
-Use this for Rust expressions the macro can't express.
+| `(. obj field)` | `obj.field` |
+| `(. obj field1 field2)` | `obj.field1.field2` |
+| `(. obj (method))` | `obj.method()` |
+| `(. obj (method arg1 arg2))` | `obj.method(arg1, arg2)` |
+| `(. obj field (method arg))` | `obj.field.method(arg)` |
+| `(. (expr) (method))` | `(expr).method()` |
 
 ```
-lisp!(rust { let x = vec![1,2,3]; x.iter().sum::<i32>() })
-→  { let x = vec![1,2,3]; x.iter().sum::<i32>() }
-
-lisp!(rust let x: i32 = 42)
-→  let x: i32 = 42;
+lisp!(. self val (clone))  →  self.val.clone()
+lisp!(. self data (push 42))  →  self.data.push(42)
+lisp!(. (- a b) (abs))  →  (a - b).abs()
 ```
+
+## Value References (val)
+
+Use `(val expr)` to reference a value without calling it. This is useful for path constants and enum variants:
+
+| Syntax | Output |
+|---|---|
+| `(val x)` | `x` |
+| `(val std::f64::consts::PI)` | `std::f64::consts::PI` |
+| `(val MyEnum::Variant)` | `MyEnum::Variant` |
 
 ---
 
