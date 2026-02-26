@@ -145,7 +145,7 @@
 //! |---|---|
 //! | `(panic args...)` | `panic!(args...)` |
 //! | `(name! args...)` | `name!(args...)` |
-//! | `(macro! name args...)` | `name!(args...)` (legacy) |
+//! | `(macro! name args...)` | `name!(args...)` |
 //!
 //! ## Logical Operators
 //! | S-expression | Rust output |
@@ -192,13 +192,11 @@
 //! | `(. obj a b c)` | `obj.a.b.c` |
 
 //! | `(new Name (f1 v1)...)` | `Name { f1: v1, ... }` |
-//! | `(struct-lit Name (f1 v1)...)` | `Name { f1: v1, ... }` (legacy) |
 
 //! | `(tuple a b c)` | `(a, b, c)` |
 //! | `(tuple a)` | `(a,)` |
 //! | `(tuple)` | `()` |
 //! | `(array 1 2 3)` | `[1, 2, 3]` |
-//! | `(array-repeat 0 10)` | `[0; 10]` |
 //! | `(vec a b c)` | `vec![a, b, c]` |
 //! | `(val x)` | `x` |
 //! | `(rust { code })` | `code` |
@@ -222,7 +220,7 @@ macro_rules! lisp {
     // struct — dispatch all forms to proc macro
     ( $(#[$m:meta])* $vis:vis struct $name:ident $($rest:tt)* ) => ( $crate::lisp_struct!($(#[$m])* $vis struct $name $($rest)*); );
 
-    // enum (brace passthrough — legacy)
+    // enum (brace passthrough)
     ( $(#[$m:meta])* $vis:vis enum $name:ident { $($body:tt)* }) => ( $(#[$m]);* $vis enum $name { $($body)* } );
     // enum (S-expression variants — dispatched to proc macro)
     ( $(#[$m:meta])* $vis:vis enum $name:ident < $($rest:tt)+ ) => ( $crate::lisp_enum!($(#[$m])* $vis enum $name < $($rest)+); );
@@ -486,18 +484,12 @@ macro_rules! lisp {
     (new $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
     (new $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
     (new $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
-    // struct-lit (legacy alias — kept for backward compatibility)
-    (struct - lit $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
-    (struct - lit $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
-    (struct - lit $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
-
     // ── Len ──────────────────────────────────────────────────
 
     // ── Collections ──────────────────────────────────────────
     (tuple $single:tt) => (($crate::lisp_arg!($single),));
     (tuple $($e:tt)* ) => ( ($($crate::lisp_arg!($e)),*) );
     (vec $($e:tt)* ) => ( vec![$($crate::lisp_arg!($e)),*] );
-    (array - repeat $val:tt $count:tt) => ( [$crate::lisp_arg!($val); $crate::lisp_arg!($count)] );
     (array $($e:tt)* ) => ( [$($crate::lisp_arg!($e)),*] );
 
     // ── Val ──────────────────────────────────────────────────

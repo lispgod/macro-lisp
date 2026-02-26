@@ -237,13 +237,7 @@ fn array_empty() {
     assert_eq!(arr, []);
 }
 
-#[test]
-fn array_repeat() {
-    let arr: [i32; 5] = lisp!(array - repeat 0 5);
-    assert_eq!(arr, [0, 0, 0, 0, 0]);
-}
-
-// ── struct-lit ──────────────────────────────────────────────
+// ── Struct Construction ─────────────────────────────────────
 
 #[test]
 fn struct_lit_construction() {
