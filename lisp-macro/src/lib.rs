@@ -580,6 +580,12 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
         }
     }
 
+    // Check for item-level forms: [vis] const/static/type ...
+    // These are dispatched here so they benefit from syn::Type validation.
+    if let Some(result) = eval_item_form(tokens) {
+        return result;
+    }
+
     // Single token — return as-is (unless it's a keyword that needs special handling)
     if tokens.len() == 1 {
         let t = &tokens[0];
@@ -1446,6 +1452,119 @@ fn split_pattern_guard(tokens: &[TokenTree]) -> (TokenStream2, TokenStream2) {
     }
     let pat: TokenStream2 = tokens.iter().cloned().collect();
     (pat, quote! {})
+}
+
+// ─── Item-level forms: const, static, type ───────────────────────────────────
+// Handles: [vis] const NAME TYPE [=] VALUE
+//          [vis] static [mut] NAME TYPE [=] VALUE
+//          [vis] type NAME = TARGET
+// Produces complete items including trailing semicolons.
+fn eval_item_form(tokens: &[TokenTree]) -> Option<TokenStream2> {
+    if tokens.is_empty() { return None; }
+
+    // Parse optional visibility prefix
+    let (vis_ts, vis_consumed) = parse_visibility(tokens);
+    let rest = &tokens[vis_consumed..];
+    if rest.is_empty() { return None; }
+
+    // Determine the keyword: const, static, or type
+    if is_ident(&rest[0], "const") {
+        // Skip "const fn" — that's a function, not a const variable
+        if rest.len() >= 2 && is_ident(&rest[1], "fn") {
+            return None;
+        }
+        return Some(eval_const_static(rest, &vis_ts, false, false));
+    }
+
+    if is_ident(&rest[0], "static") {
+        let is_mut = rest.len() >= 2 && is_ident(&rest[1], "mut");
+        return Some(eval_const_static(rest, &vis_ts, true, is_mut));
+    }
+
+    if is_ident(&rest[0], "type") {
+        return Some(eval_type_alias(rest, &vis_ts));
+    }
+
+    None
+}
+
+/// Parse: const/static [mut] NAME TYPE [=] VALUE
+/// `keyword_rest` starts at "const" or "static".
+fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, is_static: bool, is_mut: bool) -> TokenStream2 {
+    let mut i = 1; // skip "const" or "static"
+    if is_mut { i += 1; } // skip "mut"
+
+    if i >= keyword_rest.len() {
+        abort!(keyword_rest[0].span(), "expected name after const/static keyword");
+    }
+
+    let name = &keyword_rest[i];
+    i += 1;
+
+    if i >= keyword_rest.len() {
+        abort!(name.span(), "expected type after name in const/static");
+    }
+
+    // Look for `=` to separate type from value
+    let eq_pos = keyword_rest[i..].iter().position(|t| is_punct(t, '='));
+
+    let (type_ts, value_ts) = if let Some(pos) = eq_pos {
+        // [vis] const/static NAME TYPE = VALUE
+        let type_tokens: TokenStream2 = keyword_rest[i..i + pos].iter().cloned().collect();
+        let value_tokens = &keyword_rest[i + pos + 1..];
+        let val = eval_lisp_arg(value_tokens);
+        (validate_type(type_tokens), val)
+    } else {
+        // [vis] const/static NAME TYPE_TT VALUE_TT (no = separator)
+        let type_tt = &keyword_rest[i];
+        i += 1;
+        let type_ts = if let TokenTree::Group(g) = type_tt {
+            if g.delimiter() == Delimiter::Parenthesis {
+                // Parenthesized type: parse through validate_type
+                validate_type(g.stream())
+            } else {
+                validate_type(std::iter::once(type_tt.clone()).collect())
+            }
+        } else {
+            validate_type(std::iter::once(type_tt.clone()).collect())
+        };
+        if i >= keyword_rest.len() {
+            abort!(keyword_rest[0].span(), "expected value in const/static");
+        }
+        let val = eval_lisp_arg(&keyword_rest[i..]);
+        (type_ts, val)
+    };
+
+    let item_kw = if is_static {
+        if is_mut {
+            quote! { static mut }
+        } else {
+            quote! { static }
+        }
+    } else {
+        quote! { const }
+    };
+
+    quote! { #vis #item_kw #name : #type_ts = #value_ts; }
+}
+
+/// Parse: type NAME = TARGET
+/// `keyword_rest` starts at "type".
+fn eval_type_alias(keyword_rest: &[TokenTree], vis: &TokenStream2) -> TokenStream2 {
+    // type NAME = TARGET
+    if keyword_rest.len() < 4 {
+        abort!(keyword_rest[0].span(), "expected: type NAME = TARGET");
+    }
+
+    let name = &keyword_rest[1]; // NAME
+    // keyword_rest[2] should be `=`
+    if !is_punct(&keyword_rest[2], '=') {
+        abort!(keyword_rest[2].span(), "expected `=` in type alias");
+    }
+    let target: TokenStream2 = keyword_rest[3..].iter().cloned().collect();
+    let target_validated = validate_type(target);
+
+    quote! { #vis type #name = #target_validated; }
 }
 
 fn eval_closure(tokens: &[TokenTree]) -> TokenStream2 {
