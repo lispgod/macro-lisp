@@ -274,17 +274,33 @@ macro_rules! lisp {
         $crate::lisp_impl!($($tokens)+);
     };
 
-    // Named functions — dispatch to proc-macro
-    ( $(#[$m:meta])* $vis:vis unsafe fn $sym:ident $($rest:tt)+ ) => { ... };
-    ( $(#[$m:meta])* $vis:vis async fn $sym:ident $($rest:tt)+ )  => { ... };
-    ( $(#[$m:meta])* $vis:vis extern $abi:literal fn $sym:ident $($rest:tt)+ ) => { ... };
-    ( $(#[$m:meta])* $vis:vis const fn $sym:ident $($rest:tt)+ )  => { ... };
-    ( $(#[$m:meta])* $vis:vis fn $sym:ident $($rest:tt)+ )        => { ... };
+    // Named functions — all dispatch to lisp_fn! proc-macro
+    ( $(#[$m:meta])* $vis:vis unsafe fn $sym:ident $($rest:tt)+ ) => {
+        $crate::lisp_fn!($(#[$m])* $vis unsafe fn $sym $($rest)+);
+    };
+    ( $(#[$m:meta])* $vis:vis async fn $sym:ident $($rest:tt)+ ) => {
+        $crate::lisp_fn!($(#[$m])* $vis async fn $sym $($rest)+);
+    };
+    ( $(#[$m:meta])* $vis:vis extern $abi:literal fn $sym:ident $($rest:tt)+ ) => {
+        $crate::lisp_fn!($(#[$m])* $vis extern $abi fn $sym $($rest)+);
+    };
+    ( $(#[$m:meta])* $vis:vis const fn $sym:ident $($rest:tt)+ ) => {
+        $crate::lisp_fn!($(#[$m])* $vis const fn $sym $($rest)+);
+    };
+    ( $(#[$m:meta])* $vis:vis fn $sym:ident $($rest:tt)+ ) => {
+        $crate::lisp_fn!($(#[$m])* $vis fn $sym $($rest)+);
+    };
 
     // Imports & modules — keep in macro_rules! (recursive lisp! for mod)
-    ( $(#[$m:meta])* extern crate $sym:ident) => { ... };
-    (use $sym:tt $(:: $sym2:tt)* ) => { ... };
-    ( $(#[$m:meta])* $vis:vis mod $sym:ident $( ( $($e:tt)* ))* ) => { ... };
+    ( $(#[$m:meta])* extern crate $sym:ident) => {
+        $(#[$m]);* extern crate $sym;
+    };
+    (use $sym:tt $(:: $sym2:tt)* ) => {
+        use $sym $(:: $sym2)* ;
+    };
+    ( $(#[$m:meta])* $vis:vis mod $sym:ident $( ( $($e:tt)* ))* ) => {
+        $(#[$m]);* $vis mod $sym { $( $crate::lisp!( $($e)* ); )* }
+    };
 
     // Everything else → proc-macro
     ($($t:tt)+) => ($crate::lisp_eval!($($t)+));
