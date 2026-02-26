@@ -2,7 +2,7 @@ use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2};
 use proc_macro_error2::abort;
 use quote::quote;
 
-use crate::helpers::{is_punct, is_ident, validate_type, validate_generics, consume_angle_brackets};
+use crate::helpers::{is_punct, is_ident, validate_generics, consume_angle_brackets};
 use crate::output::LispOutput;
 use crate::expr::eval_lisp_expr;
 

@@ -1,10 +1,10 @@
 use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2, Span};
-use quote::{quote, ToTokens};
+use quote::quote;
 
 use crate::helpers::{is_ident, is_punct, is_literal_like, validate_type, parse_type_list, consume_type_path};
 use crate::output::LispOutput;
 use crate::shared::{parse_attributes, parse_generics_params, parse_where_clause, emit_generics, emit_return_type, emit_where_clause, parse_body_items, parse_self_param, parse_visibility};
-use crate::expr::{eval_lisp_expr, eval_lisp_arg};
+use crate::expr::eval_lisp_expr;
 
 // ─── Shared fn signature parsing ─────────────────────────────────────────────
 // Extracted from parse_fn and parse_impl_body_item to eliminate duplication.

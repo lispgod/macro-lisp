@@ -1,5 +1,5 @@
 use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2, Spacing, Punct};
-use quote::{quote, ToTokens};
+use quote::quote;
 
 use crate::helpers::{is_punct, is_ident, consume_type_path, validate_type};
 use crate::output::{LispOutput, verbatim_expr, paren_wrap, build_block_stmts};

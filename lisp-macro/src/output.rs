@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, ToTokens};
+use quote::ToTokens;
 
 // ─── LispOutput: typed output from S-expression evaluation ────────────────────
 // Represents the result of evaluating an S-expression, distinguishing between
