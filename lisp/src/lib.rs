@@ -261,6 +261,16 @@ macro_rules! lisp {
             $($pattern $(| $pat2)* => $crate::lisp_match_arg!($body) ),*
         }
     );
+    // match with multiple body expressions per arm
+    (match $e:tt $( ( $pattern:pat_param $(| $pat2:pat_param)* => $($body:tt)+ ) )* ) => (
+        match $crate::lisp_arg!($e) {
+            $($pattern $(| $pat2)* => { $($crate::lisp_arg!($body));* }),*
+        }
+    );
+    // match with mixed guard clauses (some arms may have guards, some may not)
+    (match $e:tt $($arm:tt)*) => (
+        $crate::lisp_match_dispatch!([$crate::lisp_arg!($e)] () $($arm)*)
+    );
 
     // ── Bindings ─────────────────────────────────────────────
 
@@ -269,6 +279,11 @@ macro_rules! lisp {
     (let mut ($var:ident $typ:ty) $e:expr) => (let mut $var: $typ = $e;);
     (let mut $var:ident ( $($e:tt)+ )) => (let mut $var = $crate::lisp!($($e)+););
     (let mut $var:ident $e:expr) => (let mut $var = $e;);
+
+    // let else: (let else (Pat = expr) (fallback))
+    (let else ( $pat:pat_param = $($val:tt)+ ) ( $($fallback:tt)* ) ) => (
+        let $pat = $crate::lisp_arg!($($val)+) else { $crate::lisp!($($fallback)*); };
+    );
 
     // let (immutable)
     (let ($var:ident $typ:ty) ( $($e:tt)+ ) ) => (let $var: $typ = $crate::lisp!( $($e)+););
@@ -336,6 +351,7 @@ macro_rules! lisp {
     ($l:lifetime loop $( ( $($e:tt)* ) )* ) => ( $l: loop { $( $crate::lisp!( $($e)* ) );* });
     ($l:lifetime while let ( $pattern:pat = $($cond:tt)* ) $( ( $($e:tt)* ) )* ) => ( $l: while let $pattern = $crate::lisp_arg!($($cond)*) { $( $crate::lisp!($($e)*) );* });
     ($l:lifetime while $cond:tt $( ( $($e:tt)* ) )* ) => ( $l: while $crate::lisp_arg!($cond) { $( $crate::lisp!( $($e)* ) );* });
+    ($l:lifetime for ( $($pat:tt)+ ) in $iter:tt $( ( $($e:tt)* ) )* ) => ( $l: for ($($pat)+) in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
     ($l:lifetime for $var:ident in $iter:tt $( ( $($e:tt)* ) )* ) => ( $l: for $var in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
 
     (loop $( ( $($e:tt)* ) )* ) => ( loop { $( $crate::lisp!( $($e)* ) );* });
@@ -346,6 +362,8 @@ macro_rules! lisp {
     // while
     (while $cond:tt $( ( $($e:tt)* ) )* ) => ( while $crate::lisp_arg!($cond) { $( $crate::lisp!( $($e)* ) );* });
 
+    // for with pattern destructuring: (for (pat) in iter (body)...)
+    (for ( $($pat:tt)+ ) in $iter:tt $( ( $($e:tt)* ) )* ) => ( for ($($pat)+) in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
     // for...in
     (for $var:ident in $iter:tt $( ( $($e:tt)* ) )* ) => ( for $var in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
 
@@ -354,6 +372,12 @@ macro_rules! lisp {
     // if let (BEFORE if)
     (if let ( $pattern:pat = $($cond:tt)* ) $e1:tt $e2:tt) => (if let $pattern = $crate::lisp_arg!($($cond)*) { $crate::lisp_arg!($e1) } else { $crate::lisp_arg!($e2) });
     (if let ( $pattern:pat = $($cond:tt)* ) $e:tt) => (if let $pattern = $crate::lisp_arg!($($cond)*) { $crate::lisp_arg!($e) });
+
+    // cond — multi-branch conditional
+    (cond (else $($body:tt)+)) => ({ $($crate::lisp!($body));* });
+    (cond ($cond:tt $($body:tt)+) $( ($($rest:tt)+) )*) => (
+        if $crate::lisp_arg!($cond) { $($crate::lisp!($body));* } else { $crate::lisp!(cond $( ($($rest)+) )*) }
+    );
 
     // if
     (if ( $($cond:tt)* ) $e1:tt $e2:tt) => (if $crate::lisp!($($cond)*) { $crate::lisp_arg!($e1) }else{ $crate::lisp_arg!($e2) });
@@ -380,6 +404,30 @@ macro_rules! lisp {
     );
 
     // ── Closures ─────────────────────────────────────────────
+
+    // zero-parameter closure (fn move () body...)
+    (fn move () $( ( $($e:tt)* ) )+ ) => (move || { $( $crate::lisp!( $($e)* ) );* });
+    // zero-parameter closure (fn () body...)
+    (fn () $( ( $($e:tt)* ) )+ ) => (|| { $( $crate::lisp!( $($e)* ) );* });
+
+    // zero-param closure with return type
+    (fn move () -> $ret:tt $( ( $($e:tt)* ) )+ ) => (move || -> $ret { $( $crate::lisp!( $($e)* ) );* });
+    (fn () -> $ret:tt $( ( $($e:tt)* ) )+ ) => (|| -> $ret { $( $crate::lisp!( $($e)* ) );* });
+
+    // closure with return type — typed params
+    (fn move ( $( ( $name:ident $typ:ty ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        move | $($name : $typ),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
+    (fn ( $( ( $name:ident $typ:ty ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        | $($name : $typ),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
+    // closure with return type — untyped params
+    (fn move ( $( ( $name:ident ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        move | $($name),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
+    (fn ( $( ( $name:ident ) )+ ) -> $ret:tt $( ( $($e:tt)* ) )* ) => (
+        | $($name),+ | -> $ret { $( $crate::lisp!( $($e)* ) );* }
+    );
 
     // closure (fn move) — untyped params
     (fn move ( $( ( $name:ident ) )+ )
@@ -451,8 +499,11 @@ macro_rules! lisp {
     (neg $e:tt) => (- $crate::lisp_arg!($e));
 
     // ── Bitwise ──────────────────────────────────────────────
+    (& $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(& {$crate::lisp_arg!($a) & $crate::lisp_arg!($b)} $($rest)+));
     (& $a:tt $b:tt) => ($crate::lisp_arg!($a) & $crate::lisp_arg!($b));
+    (| $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(| {$crate::lisp_arg!($a) | $crate::lisp_arg!($b)} $($rest)+));
     (| $a:tt $b:tt) => ($crate::lisp_arg!($a) | $crate::lisp_arg!($b));
+    (^ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(^ {$crate::lisp_arg!($a) ^ $crate::lisp_arg!($b)} $($rest)+));
     (^ $a:tt $b:tt) => ($crate::lisp_arg!($a) ^ $crate::lisp_arg!($b));
     (<< $a:tt $b:tt) => ($crate::lisp_arg!($a) << $crate::lisp_arg!($b));
     (>> $a:tt $b:tt) => ($crate::lisp_arg!($a) >> $crate::lisp_arg!($b));
@@ -478,18 +529,32 @@ macro_rules! lisp {
     // ── Field ────────────────────────────────────────────────
     // . field access (chained)
     (. $obj:tt $( $name:ident )+) => ($crate::lisp_arg!($obj) $(.$name)+);
+    // . tuple index access: (. tuple 0) → tuple.0
+    // Uses lisp_dot_literal! helper to work around Rust's limitation with
+    // `literal` metavariables after `.` in macro_rules expansion.
+    (. $obj:tt $idx:tt) => ($crate::lisp_dot_literal!($crate::lisp_arg!($obj), $idx));
 
     // ── Construction ─────────────────────────────────────────
+    // new (path-qualified struct/enum variant construction with spread)
+    (new $name:ident $(:: $name2:ident)+ $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name $(:: $name2)+ { $( $field: $crate::lisp_arg!($val), )* ..$base } );
+    // new (path-qualified struct/enum variant construction)
+    (new $name:ident $(:: $name2:ident)+ $( ($field:ident $val:tt) )* ) => ( $name $(:: $name2)+ { $( $field: $crate::lisp_arg!($val) ),* } );
+    // new (path-qualified shorthand)
+    (new $name:ident $(:: $name2:ident)+ $( $field:ident )+ ) => ( $name $(:: $name2)+ { $( $field ),* } );
     // new (struct construction)
     (new $name:ident $( ($field:ident $val:tt) )* (.. $base:expr) ) => ( $name { $( $field: $crate::lisp_arg!($val), )* ..$base } );
     (new $name:ident $( ($field:ident $val:tt) )* ) => ( $name { $( $field: $crate::lisp_arg!($val) ),* } );
     (new $name:ident $( $field:ident )+ ) => ( $name { $( $field ),* } );
+    // new (tuple struct construction): (new Name val1 val2) → Name(val1, val2)
+    (new $name:ident $(:: $name2:ident)+ $($e:tt)+) => ( $name $(:: $name2)+ ( $($crate::lisp_arg!($e)),* ) );
+    (new $name:ident $($e:tt)+) => ( $name ( $($crate::lisp_arg!($e)),* ) );
     // ── Len ──────────────────────────────────────────────────
 
     // ── Collections ──────────────────────────────────────────
     (tuple $single:tt) => (($crate::lisp_arg!($single),));
     (tuple $($e:tt)* ) => ( ($($crate::lisp_arg!($e)),*) );
     (vec $($e:tt)* ) => ( vec![$($crate::lisp_arg!($e)),*] );
+    (array - repeat $val:tt $count:tt) => ([$crate::lisp_arg!($val); $crate::lisp_arg!($count)]);
     (array $($e:tt)* ) => ( [$($crate::lisp_arg!($e)),*] );
 
     // ── Val ──────────────────────────────────────────────────
@@ -508,7 +573,7 @@ macro_rules! lisp {
 
     // ── Catch-all ────────────────────────────────────────────
     ( $sym:ident $(:: $sym2:ident )+ $( $e:tt )* ) => ( $sym $(:: $sym2 )+ ( $($crate::lisp_arg!($e)),* ) );
-    ( $sym:ident . $( $sym2:ident ).+ $( $e:tt )* ) => ( $sym.$( $sym2 ).+ ( $($crate::lisp_arg!($e)),* ) );
+    ( $sym:ident . $($rest:tt)+ ) => ( $crate::lisp_dot_call!($sym ; $($rest)+) );
     ( $sym:ident $( $e:tt )* ) => ( $sym ( $($crate::lisp_arg!($e)),* ) );
 
     ($e:expr) => ($e);
@@ -520,9 +585,49 @@ macro_rules! lisp_arg {
     ($e:expr) => ($e);
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! lisp_dot_call {
+    ($acc:expr ; $m:ident) => ( $acc.$m() );
+    ($acc:expr ; $m:ident . $($rest:tt)+) => ( $crate::lisp_dot_call!($acc.$m() ; $($rest)+) );
+    ($acc:expr ; $m:ident $($args:tt)+) => ( $acc.$m($($crate::lisp_arg!($args)),*) );
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! lisp_dot_literal {
+    ($obj:expr, $idx:tt) => {{ let ref __lisp_tmp = $obj; __lisp_tmp . $idx }};
+}
+
 #[macro_export]
 macro_rules! lisp_match_arg {
     ($name:ident ! $($args:tt)*) => ($name ! ($($crate::lisp_arg!($args)),*));
     ($e:expr) => ($e);
     ( $($e:tt)* ) => ($crate::lisp!( $($e)* ));
+}
+
+/// Helper macro for match with mixed guard/non-guard arms (TT muncher).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! lisp_match_dispatch {
+    // Base case: no more arms, produce the match expression
+    ([$($e:tt)*] ($($acc:tt)*)) => (
+        match $($e)* { $($acc)* }
+    );
+    // Arm with guard + single body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* if $guard:tt => $body:tt) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* if $crate::lisp_arg!($guard) => { $crate::lisp_match_arg!($body) },) $($rest)*)
+    );
+    // Arm with guard + multi body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* if $guard:tt => $($body:tt)+) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* if $crate::lisp_arg!($guard) => { $($crate::lisp_arg!($body));* },) $($rest)*)
+    );
+    // Arm without guard + single body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* => $body:tt) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* => { $crate::lisp_match_arg!($body) },) $($rest)*)
+    );
+    // Arm without guard + multi body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* => $($body:tt)+) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* => { $($crate::lisp_arg!($body));* },) $($rest)*)
+    );
 }

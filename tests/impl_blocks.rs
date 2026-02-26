@@ -42,3 +42,35 @@ fn impl_add_with_associated_type() {
     let b = V2 { x: 3, y: 4 };
     assert_eq!(a + b, V2 { x: 4, y: 6 });
 }
+
+#[test]
+fn impl_with_lifetime() {
+    struct StrRef<'a> {
+        s: &'a str,
+    }
+
+    lisp!(impl<'a> StrRef<'a>
+        (fn value ((&self)) &'a str
+            (self.s)));
+
+    let sr = StrRef { s: "hello" };
+    assert_eq!(sr.value(), "hello");
+}
+
+#[test]
+fn method_call_chaining_no_args() {
+    // Each non-self dot segment should be a zero-arg method call
+    // result.unwrap.to_string → result.unwrap().to_string()
+    let result: Result<i32, &str> = Ok(42);
+    let s: String = lisp!(result.unwrap.to_string);
+    assert_eq!(s, "42");
+}
+
+#[test]
+fn method_chain_in_proc_macro_fn() {
+    // Test the proc macro path (inside lisp-defined fn)
+    lisp!(fn get_len ((s &str)) usize
+        (s.len));
+
+    assert_eq!(get_len("hello"), 5);
+}

@@ -448,7 +448,8 @@ fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
     match ch {
         // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...), (% a b)
         '+' | '-' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
-        '*' | '/' | '%' if tokens.len() == 3 => {
+        '*' | '/' | '&' | '|' | '^' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
+        '%' if tokens.len() == 3 => {
             let a = eval_lisp_arg(&tokens[1..2]);
             let b = eval_lisp_arg(&tokens[2..3]);
             let op = Punct::new(ch, Spacing::Alone);
@@ -518,23 +519,51 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
             let name = id.to_string();
             match name.as_str() {
                 "new" => {
-                    // (new Name (field val) ...)
+                    // (new Name (field val) ...) or (new Name (field val) (.. base))
+                    // Also handle tuple struct: (new Name val1 val2) → Name(val1, val2)
+                    // Also handle path-qualified: (new Name::Variant (field val) ...)
                     if tokens.len() >= 2 {
-                        let struct_name = &tokens[1];
+                        let (path_tokens, remaining) = consume_type_path(&tokens[1..]);
+                        let struct_name_ts: TokenStream2 = path_tokens.into_iter().collect();
+                        let field_start = tokens.len() - remaining.len();
+
                         let mut fields = Vec::new();
-                        for tt in &tokens[2..] {
+                        let mut spread = None;
+                        let mut has_bare_args = false;
+
+                        for tt in &tokens[field_start..] {
                             if let TokenTree::Group(g) = tt {
                                 if g.delimiter() == Delimiter::Parenthesis {
                                     let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                    // Check for (.. base) spread syntax
+                                    if inner.len() >= 2 && is_punct(&inner[0], '.') && is_punct(&inner[1], '.') {
+                                        let base = eval_lisp_arg(&inner[2..]);
+                                        spread = Some(quote! { ..#base });
+                                        continue;
+                                    }
                                     if inner.len() >= 2 {
                                         let fname = &inner[0];
                                         let fval = eval_lisp_arg(&inner[1..]);
                                         fields.push(quote! { #fname: #fval });
                                     }
                                 }
+                            } else {
+                                has_bare_args = true;
                             }
                         }
-                        return quote! { #struct_name { #(#fields),* } };
+
+                        if has_bare_args && fields.is_empty() {
+                            let args: Vec<TokenStream2> = tokens[field_start..]
+                                .iter()
+                                .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                                .collect();
+                            return quote! { #struct_name_ts(#(#args),*) };
+                        }
+
+                        if let Some(spread_ts) = spread {
+                            return quote! { #struct_name_ts { #(#fields,)* #spread_ts } };
+                        }
+                        return quote! { #struct_name_ts { #(#fields),* } };
                     }
                 }
                 "r#struct" | "struct" => {
@@ -607,6 +636,9 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                 }
                 "if" => {
                     return eval_if(&tokens[1..]);
+                }
+                "cond" => {
+                    return eval_cond(&tokens[1..]);
                 }
                 "match" => {
                     // Pass through to lisp! for complex matching
@@ -711,6 +743,12 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                     return quote! { (#(#args),*) };
                 }
                 "array" => {
+                    // Check for array-repeat: (array - repeat val count) → [val; count]
+                    if tokens.len() == 5 && is_punct(&tokens[1], '-') && is_ident(&tokens[2], "repeat") {
+                        let val = eval_lisp_arg(&tokens[3..4]);
+                        let count = eval_lisp_arg(&tokens[4..5]);
+                        return quote! { [#val; #count] };
+                    }
                     let args: Vec<TokenStream2> = tokens[1..]
                         .iter()
                         .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
@@ -819,12 +857,22 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                         .collect();
                     return quote! { #path_ts(#(#args),*) };
                 } else {
-                    // No args — method call with zero args (like the original catch-all)
-                    // EXCEPT for `self.x.y` which is field access
+                    // No args
+                    // `self.x.y` is field access
                     if *first == "self" {
                         return quote! { #path_ts };
                     }
-                    return quote! { #path_ts() };
+                    // Non-self: each .ident is a zero-arg method call
+                    // obj.m1.m2 → obj.m1().m2()
+                    let first_tok = &tokens[0];
+                    let mut result = quote! { #first_tok };
+                    let mut j = 2; // skip first ident and first dot
+                    while j < path_end {
+                        let method = &tokens[j];
+                        result = quote! { #result.#method() };
+                        j += 2; // skip ident and next dot
+                    }
+                    return result;
                 }
             }
         }
@@ -903,8 +951,67 @@ fn eval_if(tokens: &[TokenTree]) -> TokenStream2 {
     }
 }
 
+fn eval_cond(tokens: &[TokenTree]) -> TokenStream2 {
+    if tokens.is_empty() {
+        return quote! {};
+    }
+
+    if let TokenTree::Group(g) = &tokens[0] {
+        if g.delimiter() == Delimiter::Parenthesis {
+            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+            if !inner.is_empty() {
+                // (else body...) — final else branch
+                if is_ident(&inner[0], "else") {
+                    let body: Vec<TokenStream2> = inner[1..].iter().map(|t| {
+                        eval_lisp_arg(std::slice::from_ref(t))
+                    }).collect();
+                    return quote! { { #(#body);* } };
+                }
+
+                // (cond body...) — regular condition branch
+                let cond = eval_lisp_arg(&inner[0..1]);
+                let body: Vec<TokenStream2> = inner[1..].iter().map(|t| {
+                    eval_lisp_arg(std::slice::from_ref(t))
+                }).collect();
+                let rest = eval_cond(&tokens[1..]);
+
+                if tokens.len() > 1 {
+                    return quote! { if #cond { #(#body);* } else #rest };
+                } else {
+                    return quote! { if #cond { #(#body);* } };
+                }
+            }
+        }
+    }
+    quote! {}
+}
+
 fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
     if tokens.is_empty() { return quote! {}; }
+
+    // (let else (Pat = expr) (fallback))
+    if is_ident(&tokens[0], "else") && tokens.len() >= 3 {
+        if let TokenTree::Group(g) = &tokens[1] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                // Find `=` separator
+                if let Some(eq_pos) = inner.iter().position(|t| {
+                    if let TokenTree::Punct(p) = t { p.as_char() == '=' } else { false }
+                }) {
+                    let pat: TokenStream2 = inner[..eq_pos].iter().cloned().collect();
+                    let val_tokens = &inner[eq_pos + 1..];
+                    let val = eval_lisp_expr(val_tokens);
+                    if let Some(TokenTree::Group(fb)) = tokens.get(2) {
+                        if fb.delimiter() == Delimiter::Parenthesis {
+                            let fb_inner: Vec<TokenTree> = fb.stream().into_iter().collect();
+                            let fallback = eval_lisp_expr(&fb_inner);
+                            return quote! { let #pat = #val else { #fallback; }; };
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // (let mut var val) or (let var val)
     let mut i = 0;
@@ -950,13 +1057,28 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
 }
 
 fn eval_for(tokens: &[TokenTree]) -> TokenStream2 {
-    // (for var in iter (body)...)
+    // (for var in iter (body)...) or (for (pat) in iter (body)...)
     if tokens.len() < 3 { return quote! {}; }
-    let var = &tokens[0];
-    // tokens[1] should be `in`
-    let iter_expr = eval_lisp_arg(&tokens[2..3]);
+
+    // Check if first token is a pattern group
+    let (var_ts, in_idx) = if let TokenTree::Group(g) = &tokens[0] {
+        if g.delimiter() == Delimiter::Parenthesis {
+            let inner = g.stream();
+            (quote! { (#inner) }, 1)
+        } else {
+            let v = &tokens[0];
+            (quote! { #v }, 1)
+        }
+    } else {
+        let v = &tokens[0];
+        (quote! { #v }, 1)
+    };
+
+    // tokens[in_idx] should be `in`
+    if in_idx + 1 >= tokens.len() { return quote! {}; }
+    let iter_expr = eval_lisp_arg(&tokens[in_idx + 1..in_idx + 2]);
     let mut body = Vec::new();
-    for tt in &tokens[3..] {
+    for tt in &tokens[in_idx + 2..] {
         if let TokenTree::Group(g) = tt {
             if g.delimiter() == Delimiter::Parenthesis {
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
@@ -964,7 +1086,7 @@ fn eval_for(tokens: &[TokenTree]) -> TokenStream2 {
             }
         }
     }
-    quote! { for #var in #iter_expr { #(#body);* } }
+    quote! { for #var_ts in #iter_expr { #(#body);* } }
 }
 
 fn eval_while(tokens: &[TokenTree]) -> TokenStream2 {

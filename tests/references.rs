@@ -82,3 +82,12 @@ fn box_with_expr() {
     let b = lisp!(Box::new (+ 1 2));
     assert_eq!(*b, 3);
 }
+
+#[test]
+fn tuple_indexing() {
+    let t = (10, 20, 30);
+    let first: i32 = lisp!(. t 0);
+    let second: i32 = lisp!(. t 1);
+    assert_eq!(first, 10);
+    assert_eq!(second, 20);
+}

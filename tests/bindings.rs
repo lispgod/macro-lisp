@@ -125,3 +125,20 @@ fn compound_assignment_with_expr() {
     lisp!(+= x (+ 2 3));
     assert_eq!(x, 15);
 }
+
+#[test]
+fn let_else_form() {
+    let opt: Option<i32> = Some(42);
+    lisp!(let else (Some(x) = opt) (panic "expected Some"));
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn let_else_with_return() {
+    fn extract(opt: Option<i32>) -> i32 {
+        lisp!(let else (Some(x) = opt) (return 0));
+        x
+    }
+    assert_eq!(extract(Some(42)), 42);
+    assert_eq!(extract(None), 0);
+}

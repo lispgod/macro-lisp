@@ -106,3 +106,36 @@ fn function_call_catch_all() {
     let result = lisp!(my_func 3 4);
     assert_eq!(result, 7);
 }
+
+#[test]
+fn closure_with_return_type() {
+    let add = lisp!(fn ((a i32) (b i32)) -> i32 (+ a b));
+    assert_eq!(add(3, 4), 7);
+}
+
+#[test]
+fn closure_with_return_type_move() {
+    let x = 10;
+    let f = lisp!(fn move ((y i32)) -> i32 (+ x y));
+    assert_eq!(f(5), 15);
+}
+
+#[test]
+fn closure_zero_params_return_type() {
+    let f = lisp!(fn () -> i32 (+ 1 2));
+    assert_eq!(f(), 3);
+}
+
+#[test]
+fn impl_trait_arg() {
+    lisp!(fn print_it ((x &impl core::fmt::Display)) String
+        (format! "{}" x));
+    assert_eq!(print_it(&42), "42");
+}
+
+#[test]
+fn dyn_trait_arg() {
+    lisp!(fn format_it ((x &dyn core::fmt::Display)) String
+        (format! "{}" x));
+    assert_eq!(format_it(&42), "42");
+}

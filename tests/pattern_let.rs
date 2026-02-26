@@ -32,3 +32,16 @@ fn let_nested_destructure() {
 fn let_underscore() {
     lisp!(let _ 42);
 }
+
+#[test]
+fn slice_pattern() {
+    let arr = [1, 2, 3, 4, 5];
+    lisp!(let [first, ..] arr);
+    assert_eq!(first, 1);
+}
+
+#[test]
+fn raw_strings() {
+    let s = lisp!(val r#"hello "world""#);
+    assert_eq!(s, r#"hello "world""#);
+}

@@ -50,3 +50,24 @@ lisp!(pub(crate) const fn crate_const_fn ((x i32)) i32
 fn pub_crate_const_fn() {
     assert_eq!(crate_const_fn(5), 15);
 }
+
+mod visibility_test {
+    use macro_lisp::lisp;
+
+    lisp!(pub(super) fn pub_super_fn () i32 42);
+
+    pub mod inner {
+        use macro_lisp::lisp;
+        lisp!(pub(super) fn inner_pub_super () i32 99);
+    }
+
+    pub fn get_inner_val() -> i32 {
+        inner::inner_pub_super()
+    }
+}
+
+#[test]
+fn pub_super_fn() {
+    assert_eq!(visibility_test::pub_super_fn(), 42);
+    assert_eq!(visibility_test::get_inner_val(), 99);
+}
