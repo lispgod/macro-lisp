@@ -1,5 +1,5 @@
 [workspace]
-members = ["lisp-macro", "lisp", "macro-lisp-cli"]
+members = ["lisp-macro", "lisp", "macro-lisp-cli", "macro-lisp-repl"]
 
 [package]
 name = "macro_lisp"
