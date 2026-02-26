@@ -366,7 +366,7 @@ pub(crate) fn parse_trait(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let mut i = 0;
 
     // 1. Check for visibility (pub, pub(crate), etc.)
-    let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..]);
+    let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..])?;
     i += vis_consumed;
 
     // 2. Consume trait name
@@ -446,7 +446,7 @@ pub(crate) fn parse_enum(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     // 1. Check for attributes and pub
     let attrs_ts = parse_attributes(tokens, &mut i);
 
-    let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..]);
+    let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..])?;
     i += vis_consumed;
 
     // Skip `enum` keyword if present
@@ -571,7 +571,7 @@ pub(crate) fn parse_struct(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let attrs_ts = parse_attributes(tokens, &mut i);
 
     // 2. Check for visibility
-    let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..]);
+    let (vis_ts, vis_consumed) = parse_visibility(&tokens[i..])?;
     i += vis_consumed;
 
     // Skip `struct` keyword

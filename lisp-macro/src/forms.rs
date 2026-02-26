@@ -1,6 +1,5 @@
 use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2};
-use proc_macro_error2::abort;
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote, quote_spanned};
 
 use crate::helpers::{is_punct, is_ident, validate_type};
 use crate::output::{LispOutput, verbatim_expr, build_block_stmts};
@@ -481,7 +480,7 @@ pub(crate) fn eval_item_form(tokens: &[TokenTree]) -> Option<LispOutput> {
     if tokens.is_empty() { return None; }
 
     // Parse optional visibility prefix
-    let (vis_ts, vis_consumed) = parse_visibility(tokens);
+    let (vis_ts, vis_consumed) = parse_visibility(tokens).ok()?;
     let rest = &tokens[vis_consumed..];
     if rest.is_empty() { return None; }
 
@@ -491,16 +490,16 @@ pub(crate) fn eval_item_form(tokens: &[TokenTree]) -> Option<LispOutput> {
         if rest.len() >= 2 && is_ident(&rest[1], "fn") {
             return None;
         }
-        return Some(eval_const_static(rest, &vis_ts, false, false));
+        return eval_const_static(rest, &vis_ts, false, false).ok().map(|r| r);
     }
 
     if is_ident(&rest[0], "static") {
         let is_mut = rest.len() >= 2 && is_ident(&rest[1], "mut");
-        return Some(eval_const_static(rest, &vis_ts, true, is_mut));
+        return eval_const_static(rest, &vis_ts, true, is_mut).ok().map(|r| r);
     }
 
     if is_ident(&rest[0], "type") {
-        return Some(eval_type_alias(rest, &vis_ts));
+        return eval_type_alias(rest, &vis_ts).ok().map(|r| r);
     }
 
     None
@@ -508,19 +507,19 @@ pub(crate) fn eval_item_form(tokens: &[TokenTree]) -> Option<LispOutput> {
 
 /// Parse: const/static [mut] NAME TYPE [=] VALUE
 /// `keyword_rest` starts at "const" or "static".
-pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, is_static: bool, is_mut: bool) -> LispOutput {
+pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, is_static: bool, is_mut: bool) -> syn::Result<LispOutput> {
     let mut i = 1; // skip "const" or "static"
     if is_mut { i += 1; } // skip "mut"
 
     if i >= keyword_rest.len() {
-        abort!(keyword_rest[0].span(), "expected name after const/static keyword");
+        return Err(syn::Error::new(keyword_rest[0].span(), "expected name after const/static keyword"));
     }
 
     let name = &keyword_rest[i];
     i += 1;
 
     if i >= keyword_rest.len() {
-        abort!(name.span(), "expected type after name in const/static");
+        return Err(syn::Error::new(name.span(), "expected type after name in const/static"));
     }
 
     // Look for `=` to separate type from value
@@ -547,7 +546,7 @@ pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, 
             validate_type(std::iter::once(type_tt.clone()).collect())
         };
         if i >= keyword_rest.len() {
-            abort!(keyword_rest[0].span(), "expected value in const/static");
+            return Err(syn::Error::new(keyword_rest[0].span(), "expected value in const/static"));
         }
         let val = eval_lisp_arg(&keyword_rest[i..]);
         (type_ts, val)
@@ -563,26 +562,26 @@ pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, 
         quote! { const }
     };
 
-    LispOutput::Tokens(quote! { #vis #item_kw #name : #type_ts = #value_ts; })
+    Ok(LispOutput::Tokens(quote! { #vis #item_kw #name : #type_ts = #value_ts; }))
 }
 
 /// Parse: type NAME = TARGET
 /// `keyword_rest` starts at "type".
-pub(crate) fn eval_type_alias(keyword_rest: &[TokenTree], vis: &TokenStream2) -> LispOutput {
+pub(crate) fn eval_type_alias(keyword_rest: &[TokenTree], vis: &TokenStream2) -> syn::Result<LispOutput> {
     // type NAME = TARGET
     if keyword_rest.len() < 4 {
-        abort!(keyword_rest[0].span(), "expected: type NAME = TARGET");
+        return Err(syn::Error::new(keyword_rest[0].span(), "expected: type NAME = TARGET"));
     }
 
     let name = &keyword_rest[1]; // NAME
     // keyword_rest[2] should be `=`
     if !is_punct(&keyword_rest[2], '=') {
-        abort!(keyword_rest[2].span(), "expected `=` in type alias");
+        return Err(syn::Error::new(keyword_rest[2].span(), "expected `=` in type alias"));
     }
     let target: TokenStream2 = keyword_rest[3..].iter().cloned().collect();
     let target_validated = validate_type(target);
 
-    LispOutput::Tokens(quote! { #vis type #name = #target_validated; })
+    Ok(LispOutput::Tokens(quote! { #vis type #name = #target_validated; }))
 }
 
 pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {

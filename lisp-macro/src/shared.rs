@@ -1,5 +1,4 @@
 use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2};
-use proc_macro_error2::abort;
 use quote::quote;
 
 use crate::helpers::{is_punct, is_ident, validate_generics, consume_angle_brackets};
@@ -42,15 +41,15 @@ pub(crate) fn parse_self_param(inner: &[TokenTree]) -> Option<TokenStream2> {
 }
 
 // ─── Helper: parse visibility modifier using syn::Visibility ───
-// Returns (visibility_tokens, tokens_consumed)
-pub(crate) fn parse_visibility(tokens: &[TokenTree]) -> (TokenStream2, usize) {
+// Returns (visibility_tokens, tokens_consumed) or error
+pub(crate) fn parse_visibility(tokens: &[TokenTree]) -> Result<(TokenStream2, usize), syn::Error> {
     if tokens.is_empty() {
-        return (quote! {}, 0);
+        return Ok((quote! {}, 0));
     }
     // Try to parse a syn::Visibility from the token prefix.
     // We attempt to consume `pub`, `pub(crate)`, `pub(super)`, `pub(in path)`.
     if !is_ident(&tokens[0], "pub") {
-        return (quote! {}, 0);
+        return Ok((quote! {}, 0));
     }
     // Determine how many tokens the visibility consumes
     let consumed = if tokens.len() >= 2 {
@@ -69,8 +68,8 @@ pub(crate) fn parse_visibility(tokens: &[TokenTree]) -> (TokenStream2, usize) {
     let vis_tokens: TokenStream2 = tokens[..consumed].iter().cloned().collect();
     // Validate with syn::Visibility
     match syn::parse2::<syn::Visibility>(vis_tokens.clone()) {
-        Ok(vis) => (quote! { #vis }, consumed),
-        Err(e) => abort!(tokens[0].span(), "invalid visibility: {}", e),
+        Ok(vis) => Ok((quote! { #vis }, consumed)),
+        Err(e) => Err(syn::Error::new(tokens[0].span(), format!("invalid visibility: {}", e))),
     }
 }
 
