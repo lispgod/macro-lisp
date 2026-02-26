@@ -268,9 +268,9 @@ fn closure_no_types() {
     assert_eq!(add(3i32, 4i32), 7);
 }
 
-// Renamed from closure_no_params to avoid conflict with existing test
+// Closure with no params via let binding form
 #[test]
-fn closure_no_params_untyped() {
+fn closure_no_params_let_binding() {
     lisp!(let five (fn () (+ 5 0)));
     assert_eq!(five(), 5);
 }
