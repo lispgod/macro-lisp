@@ -381,6 +381,11 @@ macro_rules! lisp {
 
     // ── Closures ─────────────────────────────────────────────
 
+    // zero-parameter closure (fn move () body...)
+    (fn move () $( ( $($e:tt)* ) )+ ) => (move || { $( $crate::lisp!( $($e)* ) );* });
+    // zero-parameter closure (fn () body...)
+    (fn () $( ( $($e:tt)* ) )+ ) => (|| { $( $crate::lisp!( $($e)* ) );* });
+
     // closure (fn move) — untyped params
     (fn move ( $( ( $name:ident ) )+ )
         $( ( $($e:tt)* ))*
