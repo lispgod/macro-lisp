@@ -191,6 +191,54 @@ lisp!(fn main () ()
 
 See the full [syntax reference](lisp/src/lib.rs) in the source doc comments.
 
+## Running `.lisp` Files
+
+You can write S-expression programs in standalone `.lisp` files and run them directly:
+
+```lisp
+;; factorial.lisp
+(fn factorial ((n i32)) i32
+  (if (<= n 1)
+    1
+    (* n (factorial (- n 1)))))
+
+(fn main () ()
+    (println! "10! = {}" (factorial 10)))
+```
+
+```bash
+cargo run -p macro-lisp-cli -- run factorial.lisp      # compile and run
+cargo run -p macro-lisp-cli -- check factorial.lisp     # compile only, report errors
+cargo run -p macro-lisp-cli -- expand factorial.lisp    # show generated Rust code
+```
+
+See `scripts/` for more example programs and `ROADMAP.md` for the project roadmap.
+
+## Interactive REPL
+
+Start an interactive S-expression evaluation session:
+
+```bash
+cargo run -p macro-lisp-repl
+```
+
+```
+λ> (+ 1 2)
+3
+λ> (fn double ((x i32)) i32 (* x 2))
+λ> (double 21)
+42
+λ> :load scripts/factorial.lisp
+Loaded 2 expression(s) from scripts/factorial.lisp
+λ> (factorial 5)
+120
+λ> :expand (+ 1 2)
+λ> :reset
+λ> :quit
+```
+
+Type `:help` in the REPL for all available commands.
+
 ## License
 
 [MIT](LICENSE)

@@ -4,7 +4,11 @@ use proc_macro2::TokenStream as TokenStream2;
 #[cfg(feature = "debug-expansion")]
 pub(crate) fn debug_expansion(label: &str, output: &TokenStream2) {
     if let Ok(file) = syn::parse_file(&output.to_string()) {
-        eprintln!("=== {} expansion ===\n{}", label, prettyplease::unparse(&file));
+        eprintln!(
+            "=== {} expansion ===\n{}",
+            label,
+            prettyplease::unparse(&file)
+        );
     }
 }
 

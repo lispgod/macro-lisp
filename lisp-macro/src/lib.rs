@@ -1,21 +1,21 @@
 mod debug;
-mod output;
-mod helpers;
-mod shared;
 mod expr;
 mod forms;
+mod helpers;
 mod items;
+mod output;
+mod shared;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use proc_macro2::{Delimiter, TokenTree, Span};
+use proc_macro2::{Delimiter, Span, TokenTree};
 use proc_macro_error2::{abort, proc_macro_error};
 use quote::{quote, quote_spanned, ToTokens};
 
 use debug::debug_expansion;
-use helpers::{flatten_none_delim, is_ident, validate_pattern};
 use expr::eval_lisp_expr;
-use items::{parse_assign_op, parse_impl, parse_trait, parse_enum, parse_struct, parse_fn};
+use helpers::{flatten_none_delim, is_ident, validate_pattern};
+use items::{parse_assign_op, parse_enum, parse_fn, parse_impl, parse_struct, parse_trait};
 
 // ─── lisp_assign! ───────────────────────────────────────────────────────────
 //
@@ -27,16 +27,22 @@ use items::{parse_assign_op, parse_impl, parse_trait, parse_enum, parse_struct, 
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_assign(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     if tokens.len() < 3 {
-        abort!(tokens.first().map_or(Span::call_site(), |t| t.span()),
-               "lisp_assign! requires at least an operator, LHS, and RHS");
+        abort!(
+            tokens.first().map_or(Span::call_site(), |t| t.span()),
+            "lisp_assign! requires at least an operator, LHS, and RHS"
+        );
     }
 
     // Parse the operator (first 1 or 2 punctuation tokens)
     let (op_tokens, rest) = parse_assign_op(&tokens);
     if op_tokens.is_empty() || rest.is_empty() {
-        abort!(tokens[0].span(), "lisp_assign! invalid operator or missing operands");
+        abort!(
+            tokens[0].span(),
+            "lisp_assign! invalid operator or missing operands"
+        );
     }
 
     let op_ts: TokenStream2 = op_tokens.into_iter().collect();
@@ -79,7 +85,8 @@ pub fn lisp_assign(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_impl(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_impl(&tokens);
     match result {
         Ok(item) => {
@@ -95,7 +102,8 @@ pub fn lisp_impl(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_trait(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_trait(&tokens);
     match result {
         Ok(item) => {
@@ -111,7 +119,8 @@ pub fn lisp_trait(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_enum(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_enum(&tokens);
     match result {
         Ok(item) => {
@@ -127,7 +136,8 @@ pub fn lisp_enum(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_struct(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_struct(&tokens);
     match result {
         Ok(item) => {
@@ -143,7 +153,8 @@ pub fn lisp_struct(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_fn(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_fn(&tokens);
     match result {
         Ok(item) => {
@@ -166,16 +177,21 @@ pub fn lisp_fn(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_let(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     if tokens.len() < 2 {
-        abort!(tokens.first().map_or(Span::call_site(), |t| t.span()),
-               "lisp_let! requires a pattern and a value");
+        abort!(
+            tokens.first().map_or(Span::call_site(), |t| t.span()),
+            "lisp_let! requires a pattern and a value"
+        );
     }
 
     // Check for `mut` keyword at the start
     let mut i = 0;
     let is_mut = is_ident(&tokens[i], "mut");
-    if is_mut { i += 1; }
+    if is_mut {
+        i += 1;
+    }
 
     if tokens.len() - i < 2 {
         abort!(tokens[i].span(), "lisp_let! requires a pattern and a value");
@@ -200,9 +216,15 @@ pub fn lisp_let(input: TokenStream) -> TokenStream {
         }
     };
 
-    let mut_kw = if is_mut { quote! { mut } } else { quote! {} };
+    let mut_kw = if is_mut {
+        quote! { mut }
+    } else {
+        quote! {}
+    };
 
-    let span = pattern_tokens.first().map_or(Span::call_site(), |t| t.span());
+    let span = pattern_tokens
+        .first()
+        .map_or(Span::call_site(), |t| t.span());
     let result = quote_spanned! { span =>
         let #mut_kw #pattern_ts = #val_ts;
     };
@@ -218,7 +240,8 @@ pub fn lisp_let(input: TokenStream) -> TokenStream {
 #[proc_macro]
 #[proc_macro_error]
 pub fn lisp_eval(input: TokenStream) -> TokenStream {
-    let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
+    let tokens: Vec<TokenTree> =
+        flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = eval_lisp_expr(&tokens);
     let result_ts = result.to_token_stream();
     debug_expansion("lisp_eval!", &result_ts);

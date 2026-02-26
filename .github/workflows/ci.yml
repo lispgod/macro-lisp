@@ -34,7 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --workspace --lib -- -D warnings
+      - run: cargo clippy --workspace --lib --bins -- -D warnings
 
   fmt:
     name: Rustfmt

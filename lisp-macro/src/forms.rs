@@ -1,13 +1,15 @@
-use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2};
+use proc_macro2::{Delimiter, TokenStream as TokenStream2, TokenTree};
 use quote::{quote, quote_spanned};
 
-use crate::helpers::{is_punct, is_ident, validate_type};
-use crate::output::{LispOutput, verbatim_expr, build_block_stmts};
-use crate::shared::{parse_visibility, parse_body_items};
-use crate::expr::{eval_lisp_expr, eval_lisp_arg};
+use crate::expr::{eval_lisp_arg, eval_lisp_expr};
+use crate::helpers::{is_ident, is_punct, validate_type};
+use crate::output::{build_block_stmts, verbatim_expr, LispOutput};
+use crate::shared::{parse_body_items, parse_visibility};
 
 pub(crate) fn eval_if(tokens: &[TokenTree]) -> syn::Expr {
-    if tokens.is_empty() { return verbatim_expr(quote! {}); }
+    if tokens.is_empty() {
+        return verbatim_expr(quote! {});
+    }
 
     // Check for `if let` form: (if let (Pat = expr) then else)
     // Keep if-let as Verbatim for now (syn::ExprLet is complex)
@@ -17,14 +19,20 @@ pub(crate) fn eval_if(tokens: &[TokenTree]) -> syn::Expr {
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
                 // Find `=` separator
                 if let Some(eq_pos) = inner.iter().position(|t| {
-                    if let TokenTree::Punct(p) = t { p.as_char() == '=' } else { false }
+                    if let TokenTree::Punct(p) = t {
+                        p.as_char() == '='
+                    } else {
+                        false
+                    }
                 }) {
                     let pat: TokenStream2 = inner[..eq_pos].iter().cloned().collect();
                     let val = eval_lisp_arg(&inner[eq_pos + 1..]);
                     if tokens.len() >= 4 {
                         let then_branch = eval_lisp_arg(&tokens[2..3]);
                         let else_branch = eval_lisp_arg(&tokens[3..4]);
-                        return verbatim_expr(quote! { if let #pat = #val { #then_branch } else { #else_branch } });
+                        return verbatim_expr(
+                            quote! { if let #pat = #val { #then_branch } else { #else_branch } },
+                        );
                     } else {
                         let then_branch = eval_lisp_arg(&tokens[2..3]);
                         return verbatim_expr(quote! { if let #pat = #val { #then_branch } });
@@ -41,14 +49,18 @@ pub(crate) fn eval_if(tokens: &[TokenTree]) -> syn::Expr {
             stmts: build_block_stmts(vec![LispOutput::Expr(eval_lisp_arg(&tokens[1..2]))]),
         }
     } else {
-        syn::Block { brace_token: syn::token::Brace::default(), stmts: vec![] }
+        syn::Block {
+            brace_token: syn::token::Brace::default(),
+            stmts: vec![],
+        }
     };
     let else_branch = if tokens.len() >= 3 {
         let else_expr = eval_lisp_arg(&tokens[2..3]);
         let else_body = match &else_expr {
             syn::Expr::If(_) => else_expr, // else-if chain
             _ => syn::Expr::Block(syn::ExprBlock {
-                attrs: vec![], label: None,
+                attrs: vec![],
+                label: None,
                 block: syn::Block {
                     brace_token: syn::token::Brace::default(),
                     stmts: vec![syn::Stmt::Expr(else_expr, None)],
@@ -56,11 +68,16 @@ pub(crate) fn eval_if(tokens: &[TokenTree]) -> syn::Expr {
             }),
         };
         Some((syn::token::Else::default(), Box::new(else_body)))
-    } else { None };
+    } else {
+        None
+    };
 
     syn::Expr::If(syn::ExprIf {
-        attrs: vec![], if_token: syn::token::If::default(),
-        cond: Box::new(cond), then_branch: then_block, else_branch,
+        attrs: vec![],
+        if_token: syn::token::If::default(),
+        cond: Box::new(cond),
+        then_branch: then_block,
+        else_branch,
     })
 }
 
@@ -75,11 +92,13 @@ pub(crate) fn eval_cond(tokens: &[TokenTree]) -> syn::Expr {
             if !inner.is_empty() {
                 // (else body...) — final else branch
                 if is_ident(&inner[0], "else") {
-                    let body: Vec<syn::Expr> = inner[1..].iter().map(|t| {
-                        eval_lisp_arg(std::slice::from_ref(t))
-                    }).collect();
+                    let body: Vec<syn::Expr> = inner[1..]
+                        .iter()
+                        .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                        .collect();
                     return syn::Expr::Block(syn::ExprBlock {
-                        attrs: vec![], label: None,
+                        attrs: vec![],
+                        label: None,
                         block: syn::Block {
                             brace_token: syn::token::Brace::default(),
                             stmts: body.into_iter().map(|e| syn::Stmt::Expr(e, None)).collect(),
@@ -89,9 +108,10 @@ pub(crate) fn eval_cond(tokens: &[TokenTree]) -> syn::Expr {
 
                 // (cond body...) — regular condition branch
                 let cond = eval_lisp_arg(&inner[0..1]);
-                let body: Vec<LispOutput> = inner[1..].iter().map(|t| {
-                    LispOutput::Expr(eval_lisp_arg(std::slice::from_ref(t)))
-                }).collect();
+                let body: Vec<LispOutput> = inner[1..]
+                    .iter()
+                    .map(|t| LispOutput::Expr(eval_lisp_arg(std::slice::from_ref(t))))
+                    .collect();
                 let then_block = syn::Block {
                     brace_token: syn::token::Brace::default(),
                     stmts: build_block_stmts(body),
@@ -102,7 +122,8 @@ pub(crate) fn eval_cond(tokens: &[TokenTree]) -> syn::Expr {
                     let else_body = match &rest {
                         syn::Expr::If(_) => rest,
                         _ => syn::Expr::Block(syn::ExprBlock {
-                            attrs: vec![], label: None,
+                            attrs: vec![],
+                            label: None,
                             block: syn::Block {
                                 brace_token: syn::token::Brace::default(),
                                 stmts: vec![syn::Stmt::Expr(rest, None)],
@@ -110,11 +131,16 @@ pub(crate) fn eval_cond(tokens: &[TokenTree]) -> syn::Expr {
                         }),
                     };
                     Some((syn::token::Else::default(), Box::new(else_body)))
-                } else { None };
+                } else {
+                    None
+                };
 
                 return syn::Expr::If(syn::ExprIf {
-                    attrs: vec![], if_token: syn::token::If::default(),
-                    cond: Box::new(cond), then_branch: then_block, else_branch,
+                    attrs: vec![],
+                    if_token: syn::token::If::default(),
+                    cond: Box::new(cond),
+                    then_branch: then_block,
+                    else_branch,
                 });
             }
         }
@@ -125,16 +151,22 @@ pub(crate) fn eval_cond(tokens: &[TokenTree]) -> syn::Expr {
 /// Helper: build a `syn::Stmt::Local` (let binding).
 fn make_local(pat: syn::Pat, init: Option<syn::Expr>) -> syn::Stmt {
     syn::Stmt::Local(syn::Local {
-        attrs: vec![], let_token: syn::token::Let::default(), pat,
+        attrs: vec![],
+        let_token: syn::token::Let::default(),
+        pat,
         init: init.map(|e| syn::LocalInit {
-            eq_token: syn::token::Eq::default(), expr: Box::new(e), diverge: None,
+            eq_token: syn::token::Eq::default(),
+            expr: Box::new(e),
+            diverge: None,
         }),
         semi_token: syn::token::Semi::default(),
     })
 }
 
 pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
-    if tokens.is_empty() { return LispOutput::Tokens(quote! {}); }
+    if tokens.is_empty() {
+        return LispOutput::Tokens(quote! {});
+    }
 
     // Scoped let: (let ((var init)...) body...)
     // First token is a group containing (var init) pairs, followed by body groups
@@ -142,7 +174,8 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
         if g.delimiter() == Delimiter::Parenthesis {
             let outer_inner: Vec<TokenTree> = g.stream().into_iter().collect();
             // Check if this looks like scoped let: first element is a group
-            let is_scoped = !outer_inner.is_empty() && matches!(&outer_inner[0], TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis);
+            let is_scoped = !outer_inner.is_empty()
+                && matches!(&outer_inner[0], TokenTree::Group(g) if g.delimiter() == Delimiter::Parenthesis);
             if is_scoped {
                 let mut bindings = Vec::new();
                 for tt in &outer_inner {
@@ -170,7 +203,11 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
                 // Find `=` separator
                 if let Some(eq_pos) = inner.iter().position(|t| {
-                    if let TokenTree::Punct(p) = t { p.as_char() == '=' } else { false }
+                    if let TokenTree::Punct(p) = t {
+                        p.as_char() == '='
+                    } else {
+                        false
+                    }
                 }) {
                     let pat: TokenStream2 = inner[..eq_pos].iter().cloned().collect();
                     let val_tokens = &inner[eq_pos + 1..];
@@ -180,7 +217,9 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
                             let fb_inner: Vec<TokenTree> = fb.stream().into_iter().collect();
                             let fallback = eval_lisp_expr(&fb_inner);
                             let span = tokens[0].span();
-                            return LispOutput::Tokens(quote_spanned! { span => let #pat = #val else { #fallback; }; });
+                            return LispOutput::Tokens(
+                                quote_spanned! { span => let #pat = #val else { #fallback; }; },
+                            );
                         }
                     }
                 }
@@ -207,9 +246,13 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
     // (let mut var val) or (let var val) — simple cases → syn::Stmt::Local
     let mut i = 0;
     let is_mut = is_ident(&tokens[i], "mut");
-    if is_mut { i += 1; }
+    if is_mut {
+        i += 1;
+    }
 
-    if i >= tokens.len() { return LispOutput::Tokens(quote! {}); }
+    if i >= tokens.len() {
+        return LispOutput::Tokens(quote! {});
+    }
 
     // Check for typed let: (let (var Type) val)
     if let TokenTree::Group(g) = &tokens[i] {
@@ -219,11 +262,16 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
                 if let TokenTree::Ident(var_ident) = &inner[0] {
                     let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
                     if let Ok(ty) = syn::parse2::<syn::Type>(raw_type) {
-                        let mut_token = if is_mut { Some(syn::token::Mut::default()) } else { None };
+                        let mut_token = if is_mut {
+                            Some(syn::token::Mut::default())
+                        } else {
+                            None
+                        };
                         let pat = syn::Pat::Type(syn::PatType {
                             attrs: vec![],
                             pat: Box::new(syn::Pat::Ident(syn::PatIdent {
-                                attrs: vec![], by_ref: None,
+                                attrs: vec![],
+                                by_ref: None,
                                 mutability: mut_token,
                                 ident: var_ident.clone(),
                                 subpat: None,
@@ -234,7 +282,9 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
                         i += 1;
                         let init = if i < tokens.len() {
                             Some(eval_lisp_arg(&tokens[i..]))
-                        } else { None };
+                        } else {
+                            None
+                        };
                         return LispOutput::Stmt(make_local(pat, init));
                     }
                 }
@@ -244,9 +294,14 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
 
     // Simple untyped let: (let var val) or (let mut var val)
     if let TokenTree::Ident(var_ident) = &tokens[i] {
-        let mut_token = if is_mut { Some(syn::token::Mut::default()) } else { None };
+        let mut_token = if is_mut {
+            Some(syn::token::Mut::default())
+        } else {
+            None
+        };
         let pat = syn::Pat::Ident(syn::PatIdent {
-            attrs: vec![], by_ref: None,
+            attrs: vec![],
+            by_ref: None,
             mutability: mut_token,
             ident: var_ident.clone(),
             subpat: None,
@@ -254,7 +309,9 @@ pub(crate) fn eval_let(tokens: &[TokenTree]) -> LispOutput {
         i += 1;
         let init = if i < tokens.len() {
             Some(eval_lisp_arg(&tokens[i..]))
-        } else { None };
+        } else {
+            None
+        };
         return LispOutput::Stmt(make_local(pat, init));
     }
 
@@ -292,7 +349,9 @@ fn parse_pat(ts: TokenStream2) -> syn::Pat {
 
 pub(crate) fn eval_for(tokens: &[TokenTree]) -> syn::Expr {
     // (for var in iter (body)...) or (for (pat) in iter (body)...)
-    if tokens.len() < 3 { return verbatim_expr(quote! {}); }
+    if tokens.len() < 3 {
+        return verbatim_expr(quote! {});
+    }
 
     // Check if first token is a pattern group
     let (pat, in_idx) = if let TokenTree::Group(g) = &tokens[0] {
@@ -312,7 +371,9 @@ pub(crate) fn eval_for(tokens: &[TokenTree]) -> syn::Expr {
     };
 
     // tokens[in_idx] should be `in`
-    if in_idx + 1 >= tokens.len() { return verbatim_expr(quote! {}); }
+    if in_idx + 1 >= tokens.len() {
+        return verbatim_expr(quote! {});
+    }
     let iter_expr = eval_lisp_arg(&tokens[in_idx + 1..in_idx + 2]);
     let mut body = Vec::new();
     for tt in &tokens[in_idx + 2..] {
@@ -324,7 +385,8 @@ pub(crate) fn eval_for(tokens: &[TokenTree]) -> syn::Expr {
         }
     }
     syn::Expr::ForLoop(syn::ExprForLoop {
-        attrs: vec![], label: None,
+        attrs: vec![],
+        label: None,
         for_token: syn::token::For::default(),
         pat: Box::new(pat),
         in_token: syn::token::In::default(),
@@ -337,7 +399,9 @@ pub(crate) fn eval_for(tokens: &[TokenTree]) -> syn::Expr {
 }
 
 pub(crate) fn eval_while(tokens: &[TokenTree]) -> syn::Expr {
-    if tokens.is_empty() { return verbatim_expr(quote! {}); }
+    if tokens.is_empty() {
+        return verbatim_expr(quote! {});
+    }
 
     // Check for while let: (while let (Pat = cond) body...)
     // Keep while-let as Verbatim for now
@@ -346,7 +410,11 @@ pub(crate) fn eval_while(tokens: &[TokenTree]) -> syn::Expr {
             if g.delimiter() == Delimiter::Parenthesis {
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
                 if let Some(eq_pos) = inner.iter().position(|t| {
-                    if let TokenTree::Punct(p) = t { p.as_char() == '=' } else { false }
+                    if let TokenTree::Punct(p) = t {
+                        p.as_char() == '='
+                    } else {
+                        false
+                    }
                 }) {
                     let pat: TokenStream2 = inner[..eq_pos].iter().cloned().collect();
                     let val = eval_lisp_arg(&inner[eq_pos + 1..]);
@@ -376,7 +444,8 @@ pub(crate) fn eval_while(tokens: &[TokenTree]) -> syn::Expr {
         }
     }
     syn::Expr::While(syn::ExprWhile {
-        attrs: vec![], label: None,
+        attrs: vec![],
+        label: None,
         while_token: syn::token::While::default(),
         cond: Box::new(cond),
         body: syn::Block {
@@ -406,7 +475,9 @@ fn split_pattern_guard_syn(tokens: &[TokenTree]) -> (syn::Pat, Option<syn::Expr>
 }
 
 pub(crate) fn eval_match(tokens: &[TokenTree]) -> syn::Expr {
-    if tokens.is_empty() { return verbatim_expr(quote! {}); }
+    if tokens.is_empty() {
+        return verbatim_expr(quote! {});
+    }
     let scrutinee = eval_lisp_arg(&tokens[0..1]);
     let mut arms = Vec::new();
 
@@ -436,7 +507,8 @@ pub(crate) fn eval_match(tokens: &[TokenTree]) -> syn::Expr {
                     } else if body.is_empty() {
                         verbatim_expr(quote! { {} })
                     } else {
-                        let items: Vec<syn::Expr> = body.iter()
+                        let items: Vec<syn::Expr> = body
+                            .iter()
                             .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
                             .collect();
                         verbatim_expr(quote! { { #(#items);* } })
@@ -456,8 +528,11 @@ pub(crate) fn eval_match(tokens: &[TokenTree]) -> syn::Expr {
     }
 
     syn::Expr::Match(syn::ExprMatch {
-        attrs: vec![], match_token: syn::token::Match::default(),
-        expr: Box::new(scrutinee), brace_token: syn::token::Brace::default(), arms,
+        attrs: vec![],
+        match_token: syn::token::Match::default(),
+        expr: Box::new(scrutinee),
+        brace_token: syn::token::Brace::default(),
+        arms,
     })
 }
 
@@ -481,12 +556,16 @@ fn eval_match_body_expr(tokens: &[TokenTree]) -> syn::Expr {
 //          [vis] type NAME = TARGET
 // Produces complete items including trailing semicolons.
 pub(crate) fn eval_item_form(tokens: &[TokenTree]) -> Option<LispOutput> {
-    if tokens.is_empty() { return None; }
+    if tokens.is_empty() {
+        return None;
+    }
 
     // Parse optional visibility prefix
     let (vis_ts, vis_consumed) = parse_visibility(tokens).ok()?;
     let rest = &tokens[vis_consumed..];
-    if rest.is_empty() { return None; }
+    if rest.is_empty() {
+        return None;
+    }
 
     // Determine the keyword: const, static, or type
     if is_ident(&rest[0], "const") {
@@ -511,19 +590,32 @@ pub(crate) fn eval_item_form(tokens: &[TokenTree]) -> Option<LispOutput> {
 
 /// Parse: const/static [mut] NAME TYPE [=] VALUE
 /// `keyword_rest` starts at "const" or "static".
-pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, is_static: bool, is_mut: bool) -> syn::Result<LispOutput> {
+pub(crate) fn eval_const_static(
+    keyword_rest: &[TokenTree],
+    vis: &TokenStream2,
+    is_static: bool,
+    is_mut: bool,
+) -> syn::Result<LispOutput> {
     let mut i = 1; // skip "const" or "static"
-    if is_mut { i += 1; } // skip "mut"
+    if is_mut {
+        i += 1;
+    } // skip "mut"
 
     if i >= keyword_rest.len() {
-        return Err(syn::Error::new(keyword_rest[0].span(), "expected name after const/static keyword"));
+        return Err(syn::Error::new(
+            keyword_rest[0].span(),
+            "expected name after const/static keyword",
+        ));
     }
 
     let name = &keyword_rest[i];
     i += 1;
 
     if i >= keyword_rest.len() {
-        return Err(syn::Error::new(name.span(), "expected type after name in const/static"));
+        return Err(syn::Error::new(
+            name.span(),
+            "expected type after name in const/static",
+        ));
     }
 
     // Look for `=` to separate type from value
@@ -550,7 +642,10 @@ pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, 
             validate_type(std::iter::once(type_tt.clone()).collect())
         };
         if i >= keyword_rest.len() {
-            return Err(syn::Error::new(keyword_rest[0].span(), "expected value in const/static"));
+            return Err(syn::Error::new(
+                keyword_rest[0].span(),
+                "expected value in const/static",
+            ));
         }
         let val = eval_lisp_arg(&keyword_rest[i..]);
         (type_ts, val)
@@ -566,34 +661,51 @@ pub(crate) fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, 
         quote! { const }
     };
 
-    Ok(LispOutput::Tokens(quote! { #vis #item_kw #name : #type_ts = #value_ts; }))
+    Ok(LispOutput::Tokens(
+        quote! { #vis #item_kw #name : #type_ts = #value_ts; },
+    ))
 }
 
 /// Parse: type NAME = TARGET
 /// `keyword_rest` starts at "type".
-pub(crate) fn eval_type_alias(keyword_rest: &[TokenTree], vis: &TokenStream2) -> syn::Result<LispOutput> {
+pub(crate) fn eval_type_alias(
+    keyword_rest: &[TokenTree],
+    vis: &TokenStream2,
+) -> syn::Result<LispOutput> {
     // type NAME = TARGET
     if keyword_rest.len() < 4 {
-        return Err(syn::Error::new(keyword_rest[0].span(), "expected: type NAME = TARGET"));
+        return Err(syn::Error::new(
+            keyword_rest[0].span(),
+            "expected: type NAME = TARGET",
+        ));
     }
 
     let name = &keyword_rest[1]; // NAME
-    // keyword_rest[2] should be `=`
+                                 // keyword_rest[2] should be `=`
     if !is_punct(&keyword_rest[2], '=') {
-        return Err(syn::Error::new(keyword_rest[2].span(), "expected `=` in type alias"));
+        return Err(syn::Error::new(
+            keyword_rest[2].span(),
+            "expected `=` in type alias",
+        ));
     }
     let target: TokenStream2 = keyword_rest[3..].iter().cloned().collect();
     let target_validated = validate_type(target);
 
-    Ok(LispOutput::Tokens(quote! { #vis type #name = #target_validated; }))
+    Ok(LispOutput::Tokens(
+        quote! { #vis type #name = #target_validated; },
+    ))
 }
 
 pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
-    if tokens.is_empty() { return verbatim_expr(quote! { || {} }); }
+    if tokens.is_empty() {
+        return verbatim_expr(quote! { || {} });
+    }
 
     let mut i = 0;
     let is_move = i < tokens.len() && is_ident(&tokens[i], "move");
-    if is_move { i += 1; }
+    if is_move {
+        i += 1;
+    }
 
     // Parse parameter list (a paren group containing (name Type) pairs)
     let mut inputs = syn::punctuated::Punctuated::new();
@@ -646,7 +758,10 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
                             let rt: TokenStream2 = rt_tokens.into_iter().collect();
                             let validated = validate_type(rt);
                             if let Ok(ty) = syn::parse2::<syn::Type>(validated.clone()) {
-                                output = syn::ReturnType::Type(syn::token::RArrow::default(), Box::new(ty));
+                                output = syn::ReturnType::Type(
+                                    syn::token::RArrow::default(),
+                                    Box::new(ty),
+                                );
                             } else {
                                 output = syn::ReturnType::Type(
                                     syn::token::RArrow::default(),
@@ -663,7 +778,8 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
     // Parse body items
     let body_items = parse_body_items(tokens, i);
     let body_block = syn::Expr::Block(syn::ExprBlock {
-        attrs: vec![], label: None,
+        attrs: vec![],
+        label: None,
         block: syn::Block {
             brace_token: syn::token::Brace::default(),
             stmts: build_block_stmts(body_items),
@@ -671,9 +787,20 @@ pub(crate) fn eval_closure(tokens: &[TokenTree]) -> syn::Expr {
     });
 
     syn::Expr::Closure(syn::ExprClosure {
-        attrs: vec![], lifetimes: None, constness: None, movability: None, asyncness: None,
-        capture: if is_move { Some(syn::token::Move::default()) } else { None },
-        or1_token: syn::token::Or::default(), inputs, or2_token: syn::token::Or::default(),
-        output, body: Box::new(body_block),
+        attrs: vec![],
+        lifetimes: None,
+        constness: None,
+        movability: None,
+        asyncness: None,
+        capture: if is_move {
+            Some(syn::token::Move::default())
+        } else {
+            None
+        },
+        or1_token: syn::token::Or::default(),
+        inputs,
+        or2_token: syn::token::Or::default(),
+        output,
+        body: Box::new(body_block),
     })
 }

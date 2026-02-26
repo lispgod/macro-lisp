@@ -500,7 +500,7 @@ fn test_comparison_and_logical() {
     // Logical operators
     assert!(lisp!(&& true true));
     assert!(lisp!(|| false true));
-    assert!(lisp!(! false));
+    assert!(lisp!(!false));
     assert!(!lisp!(&& true false));
 }
 

@@ -66,7 +66,14 @@ fn struct_mixed_fields() {
 }
 
 // enum definitions
-lisp!(enum Direction { North, South, East, West });
+lisp!(
+    enum Direction {
+        North,
+        South,
+        East,
+        West,
+    }
+);
 
 #[test]
 fn enum_basic() {
@@ -224,7 +231,10 @@ fn trait_with_associated_type() {
 #[test]
 fn struct_lit_spread() {
     #[derive(Debug, PartialEq)]
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     let default = Point { x: 0, y: 0 };
     lisp!(let p (new Point (x 5) (.. default)));
     assert_eq!(p, Point { x: 5, y: 0 });
@@ -233,7 +243,10 @@ fn struct_lit_spread() {
 #[test]
 fn struct_lit_shorthand() {
     #[derive(Debug, PartialEq)]
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     let x = 10;
     let y = 20;
     lisp!(let p (new Point x y));
@@ -249,7 +262,11 @@ fn new_spread_in_proc_macro() {
         depth: i32,
     }
 
-    let base = Config { width: 10, height: 20, depth: 30 };
+    let base = Config {
+        width: 10,
+        height: 20,
+        depth: 30,
+    };
     let base2 = base.clone();
     lisp!(let updated (new Config (width 100) (.. base2)));
     assert_eq!(updated.width, 100);
@@ -293,7 +310,10 @@ fn struct_where() {
 
 #[test]
 fn impl_where() {
-    struct Pair<T> { a: T, b: T }
+    struct Pair<T> {
+        a: T,
+        b: T,
+    }
     lisp!(impl<T> Pair<T> where (T: core::ops::Add<Output = T> + Copy)
         (fn sum ((&self)) T
             (+ (self.a) (self.b))));
@@ -331,7 +351,10 @@ fn impl_trait_with_path() {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct V2 { x: i32, y: i32 }
+struct V2 {
+    x: i32,
+    y: i32,
+}
 
 lisp!(impl core::ops::Add for V2
     (type Output = V2)
@@ -382,7 +405,10 @@ fn method_chain_in_proc_macro_fn() {
 #[test]
 fn core_ops_add() {
     #[derive(Debug, Clone, Copy, PartialEq)]
-    struct Vec2 { x: i32, y: i32 }
+    struct Vec2 {
+        x: i32,
+        y: i32,
+    }
     lisp!(impl core::ops::Add for Vec2
         (type Output = Vec2)
         (fn add ((self Self) (rhs Self)) Vec2
@@ -394,7 +420,10 @@ fn core_ops_add() {
 
 #[test]
 fn core_fmt_display() {
-    struct Pair { a: i32, b: i32 }
+    struct Pair {
+        a: i32,
+        b: i32,
+    }
     lisp!(impl core::fmt::Display for Pair
         (fn fmt ((self &Self) (f &mut core::fmt::Formatter)) core::fmt::Result
             (write! f "({}, {})" (self.a) (self.b))));
@@ -405,7 +434,10 @@ fn core_fmt_display() {
 #[test]
 fn core_default() {
     #[derive(Debug, PartialEq)]
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     lisp!(impl core::default::Default for Point
         (fn default () Point
             (new Point (x 0) (y 0))));
@@ -415,8 +447,12 @@ fn core_default() {
 
 #[test]
 fn core_convert_from() {
-    struct Celsius { val: f64 }
-    struct Fahrenheit { val: f64 }
+    struct Celsius {
+        val: f64,
+    }
+    struct Fahrenheit {
+        val: f64,
+    }
     lisp!(impl core::convert::From<Celsius> for Fahrenheit
         (fn from ((c Celsius)) Fahrenheit
             (new Fahrenheit (val (+ (* (. c val) 1.8) 32.0)))));
@@ -426,7 +462,9 @@ fn core_convert_from() {
 
 #[test]
 fn core_clone() {
-    struct MyVal { n: i32 }
+    struct MyVal {
+        n: i32,
+    }
     lisp!(impl core::clone::Clone for MyVal
         (fn clone ((self &Self)) MyVal
             (new MyVal (n (self.n)))));
@@ -438,7 +476,9 @@ fn core_clone() {
 #[test]
 fn core_ops_neg() {
     #[derive(Debug, PartialEq)]
-    struct Num { val: i32 }
+    struct Num {
+        val: i32,
+    }
     lisp!(impl core::ops::Neg for Num
         (type Output = Num)
         (fn neg ((self Self)) Num
@@ -450,18 +490,24 @@ fn core_ops_neg() {
 #[test]
 fn core_ops_drop() {
     use std::cell::Cell;
-    struct Guard<'a> { dropped: &'a Cell<bool> }
+    struct Guard<'a> {
+        dropped: &'a Cell<bool>,
+    }
     lisp!(impl<'a> core::ops::Drop for Guard<'a>
         (fn drop ((&mut self))
             (rust self.dropped.set(true))));
     let flag = Cell::new(false);
-    { let _g = Guard { dropped: &flag }; }
+    {
+        let _g = Guard { dropped: &flag };
+    }
     assert!(flag.get());
 }
 
 #[test]
 fn core_cmp_partial_eq() {
-    struct Approx { val: f64 }
+    struct Approx {
+        val: f64,
+    }
     lisp!(impl core::cmp::PartialEq for Approx
         (fn eq ((self &Self) (other &Self)) bool
             (rust { (self.val - other.val).abs() < 0.01 })));
@@ -474,7 +520,10 @@ fn core_cmp_partial_eq() {
 
 #[test]
 fn core_iter_iterator() {
-    struct Counter { current: i32, max: i32 }
+    struct Counter {
+        current: i32,
+        max: i32,
+    }
     lisp!(impl core::iter::Iterator for Counter
         (type Item = i32)
         (fn next ((&mut self)) Option<i32>

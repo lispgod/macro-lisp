@@ -18,9 +18,9 @@ fn fizzbuzz() {
                         (out.push "number")))))
         (val out)
     );
-    assert_eq!(result[0], "number");    // 1
-    assert_eq!(result[2], "Fizz");      // 3
-    assert_eq!(result[4], "Buzz");      // 5
+    assert_eq!(result[0], "number"); // 1
+    assert_eq!(result[2], "Fizz"); // 3
+    assert_eq!(result[4], "Buzz"); // 5
     assert_eq!(result[14], "FizzBuzz"); // 15
     assert_eq!(result.len(), 100);
 }
@@ -133,8 +133,8 @@ fn try_operator_in_fn() {
     fn parse_and_add(a: &str, b: &str) -> Result<i32, std::num::ParseIntError> {
         let pa: Result<i32, _> = a.parse();
         let pb: Result<i32, _> = b.parse();
-        let x = lisp!(? pa);
-        let y = lisp!(? pb);
+        let x = lisp!(?pa);
+        let y = lisp!(?pb);
         Ok(lisp!(+ x y))
     }
     assert_eq!(parse_and_add("3", "4").unwrap(), 7);
@@ -219,7 +219,7 @@ fn assert_basic() {
 fn try_operator() {
     fn parse_int(s: &str) -> Result<i32, std::num::ParseIntError> {
         let parsed: Result<i32, _> = s.parse();
-        let n = lisp!(? parsed);
+        let n = lisp!(?parsed);
         Ok(n + 1)
     }
     assert_eq!(parse_int("42").unwrap(), 43);

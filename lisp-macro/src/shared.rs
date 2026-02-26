@@ -1,9 +1,9 @@
-use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2};
+use proc_macro2::{Delimiter, TokenStream as TokenStream2, TokenTree};
 use quote::quote;
 
-use crate::helpers::{is_punct, is_ident, validate_generics, consume_angle_brackets};
-use crate::output::LispOutput;
 use crate::expr::eval_lisp_expr;
+use crate::helpers::{consume_angle_brackets, is_ident, is_punct, validate_generics};
+use crate::output::LispOutput;
 
 // ─── Helper: parse a self parameter from tokens inside a parameter group ───
 // Returns Some(token_stream) if it's a self parameter form, None otherwise.
@@ -25,7 +25,11 @@ pub(crate) fn parse_self_param(inner: &[TokenTree]) -> Option<TokenStream2> {
         return Some(quote! { #amp #s });
     }
     // (&mut self) → &mut self
-    if inner.len() == 3 && is_punct(&inner[0], '&') && is_ident(&inner[1], "mut") && is_ident(&inner[2], "self") {
+    if inner.len() == 3
+        && is_punct(&inner[0], '&')
+        && is_ident(&inner[1], "mut")
+        && is_ident(&inner[2], "self")
+    {
         let amp = &inner[0];
         let m = &inner[1];
         let s = &inner[2];
@@ -69,7 +73,10 @@ pub(crate) fn parse_visibility(tokens: &[TokenTree]) -> Result<(TokenStream2, us
     // Validate with syn::Visibility
     match syn::parse2::<syn::Visibility>(vis_tokens.clone()) {
         Ok(vis) => Ok((quote! { #vis }, consumed)),
-        Err(e) => Err(syn::Error::new(tokens[0].span(), format!("invalid visibility: {}", e))),
+        Err(e) => Err(syn::Error::new(
+            tokens[0].span(),
+            format!("invalid visibility: {}", e),
+        )),
     }
 }
 

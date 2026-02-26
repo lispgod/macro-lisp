@@ -148,7 +148,9 @@ fn let_else_with_return() {
 
 #[test]
 fn assign_field() {
-    struct P { x: i32 }
+    struct P {
+        x: i32,
+    }
     let mut p = P { x: 0 };
     lisp!(= p.x 5);
     assert_eq!(p.x, 5);
@@ -171,16 +173,24 @@ fn assign_deref() {
 
 #[test]
 fn assign_nested() {
-    struct Inner { val: i32 }
-    struct Outer { inner: Inner }
-    let mut o = Outer { inner: Inner { val: 0 } };
+    struct Inner {
+        val: i32,
+    }
+    struct Outer {
+        inner: Inner,
+    }
+    let mut o = Outer {
+        inner: Inner { val: 0 },
+    };
     lisp!(= o.inner.val 42);
     assert_eq!(o.inner.val, 42);
 }
 
 #[test]
 fn compound_assign_field() {
-    struct P { x: i32 }
+    struct P {
+        x: i32,
+    }
     let mut p = P { x: 10 };
     lisp!(+= p.x 5);
     assert_eq!(p.x, 15);
@@ -199,7 +209,10 @@ fn let_tuple_destructure() {
 
 #[test]
 fn let_struct_destructure() {
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     let p = Point { x: 10, y: 20 };
     lisp!(let Point { x, y } p);
     assert_eq!(x, 10);
@@ -414,7 +427,9 @@ fn let_typed_index() {
 
 #[test]
 fn let_typed_field_access() {
-    struct MyStruct { field_name: i32 }
+    struct MyStruct {
+        field_name: i32,
+    }
     let my_struct = MyStruct { field_name: 42 };
     lisp!(let (x i32) (. my_struct field_name));
     assert_eq!(x, 42);

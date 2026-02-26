@@ -132,8 +132,8 @@ fn or_variadic() {
 
 #[test]
 fn not_op() {
-    assert_eq!(true, lisp!(! false));
-    assert_eq!(false, lisp!(! true));
+    assert_eq!(true, lisp!(!false));
+    assert_eq!(false, lisp!(!true));
 }
 
 // Compound assignment

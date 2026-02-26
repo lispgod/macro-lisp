@@ -1,10 +1,15 @@
-use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2, Span};
+use proc_macro2::{Delimiter, Span, TokenStream as TokenStream2, TokenTree};
 use quote::quote;
 
-use crate::helpers::{is_ident, is_punct, is_literal_like, validate_type, parse_type_list, consume_type_path};
-use crate::output::LispOutput;
-use crate::shared::{parse_attributes, parse_generics_params, parse_where_clause, emit_generics, emit_return_type, emit_where_clause, parse_body_items, parse_self_param, parse_visibility};
 use crate::expr::eval_lisp_expr;
+use crate::helpers::{
+    consume_type_path, is_ident, is_literal_like, is_punct, parse_type_list, validate_type,
+};
+use crate::output::LispOutput;
+use crate::shared::{
+    emit_generics, emit_return_type, emit_where_clause, parse_attributes, parse_body_items,
+    parse_generics_params, parse_self_param, parse_visibility, parse_where_clause,
+};
 
 // ─── Shared fn signature parsing ─────────────────────────────────────────────
 // Extracted from parse_fn and parse_impl_body_item to eliminate duplication.
@@ -22,7 +27,14 @@ pub(crate) struct FnSignature {
 }
 
 /// Parse the fn signature portion from tokens, returning None if `fn` keyword is not found.
-pub(crate) fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, /* not-a-fn fallback tokens */ Option<TokenStream2>)>> {
+pub(crate) fn parse_fn_signature(
+    tokens: &[TokenTree],
+) -> syn::Result<
+    Option<(
+        FnSignature,
+        /* not-a-fn fallback tokens */ Option<TokenStream2>,
+    )>,
+> {
     let mut i = 0;
 
     // 1. Collect attributes
@@ -31,7 +43,9 @@ pub(crate) fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(Fn
     // 2. Collect qualifiers: pub, pub(crate), pub(super), const, unsafe, async, extern "C"
     let mut qualifiers = Vec::new();
     loop {
-        if i >= tokens.len() { break; }
+        if i >= tokens.len() {
+            break;
+        }
         match &tokens[i] {
             TokenTree::Ident(id) if *id == "pub" => {
                 qualifiers.push(tokens[i].clone());
@@ -79,7 +93,11 @@ pub(crate) fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(Fn
             return Err(syn::Error::new(tokens[i].span(), "expected function name"));
         }
     } else {
-        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        let span = if i > 0 {
+            tokens[i - 1].span()
+        } else {
+            Span::call_site()
+        };
         return Err(syn::Error::new(span, "expected function name after `fn`"));
     };
 
@@ -124,7 +142,10 @@ pub(crate) fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(Fn
     // Check for () as unit return type when followed by more tokens
     if i < tokens.len() {
         if let TokenTree::Group(g) = &tokens[i] {
-            if g.delimiter() == Delimiter::Parenthesis && g.stream().is_empty() && i + 1 < tokens.len() {
+            if g.delimiter() == Delimiter::Parenthesis
+                && g.stream().is_empty()
+                && i + 1 < tokens.len()
+            {
                 return_type_tokens.push(tokens[i].clone());
                 i += 1;
             }
@@ -132,7 +153,9 @@ pub(crate) fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(Fn
     }
     if return_type_tokens.is_empty() {
         while i < tokens.len() {
-            if is_ident(&tokens[i], "where") { break; }
+            if is_ident(&tokens[i], "where") {
+                break;
+            }
             if let TokenTree::Group(g) = &tokens[i] {
                 if g.delimiter() == Delimiter::Parenthesis {
                     break;
@@ -155,16 +178,19 @@ pub(crate) fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(Fn
     // 8. Check for `where` clause
     let where_clause = parse_where_clause(tokens, &mut i);
 
-    Ok(Some((FnSignature {
-        attrs: attrs_ts,
-        quals: quals_ts,
-        name: fn_name,
-        generics,
-        params,
-        return_type,
-        where_clause,
-        body_start: i,
-    }, None)))
+    Ok(Some((
+        FnSignature {
+            attrs: attrs_ts,
+            quals: quals_ts,
+            name: fn_name,
+            generics,
+            params,
+            return_type,
+            where_clause,
+            body_start: i,
+        },
+        None,
+    )))
 }
 
 /// Parse a lisp-style method/fn definition from tokens inside an impl/trait body.
@@ -311,7 +337,10 @@ pub(crate) fn parse_impl(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let (first_path, rest) = consume_type_path(&tokens[i..]);
     if first_path.is_empty() {
         let span = tokens.get(i).map_or(Span::call_site(), |t| t.span());
-        return Err(syn::Error::new(span, "lisp_impl!: expected type or trait name"));
+        return Err(syn::Error::new(
+            span,
+            "lisp_impl!: expected type or trait name",
+        ));
     }
     let first_path_ts: TokenStream2 = first_path.into_iter().collect();
     i = tokens.len() - rest.len();
@@ -322,7 +351,10 @@ pub(crate) fn parse_impl(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
         let (type_path, rest2) = consume_type_path(&tokens[i..]);
         if type_path.is_empty() {
             let span = tokens.get(i).map_or(tokens[i - 1].span(), |t| t.span());
-            return Err(syn::Error::new(span, "lisp_impl!: expected type after 'for'"));
+            return Err(syn::Error::new(
+                span,
+                "lisp_impl!: expected type after 'for'",
+            ));
         }
         let type_path_ts: TokenStream2 = type_path.into_iter().collect();
         i = tokens.len() - rest2.len();
@@ -376,10 +408,17 @@ pub(crate) fn parse_trait(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(tokens[i].span(), "lisp_trait!: expected trait name"));
+            return Err(syn::Error::new(
+                tokens[i].span(),
+                "lisp_trait!: expected trait name",
+            ));
         }
     } else {
-        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        let span = if i > 0 {
+            tokens[i - 1].span()
+        } else {
+            Span::call_site()
+        };
         return Err(syn::Error::new(span, "lisp_trait!: expected trait name"));
     };
 
@@ -461,10 +500,17 @@ pub(crate) fn parse_enum(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(tokens[i].span(), "lisp_enum!: expected enum name"));
+            return Err(syn::Error::new(
+                tokens[i].span(),
+                "lisp_enum!: expected enum name",
+            ));
         }
     } else {
-        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        let span = if i > 0 {
+            tokens[i - 1].span()
+        } else {
+            Span::call_site()
+        };
         return Err(syn::Error::new(span, "lisp_enum!: expected enum name"));
     };
 
@@ -586,10 +632,17 @@ pub(crate) fn parse_struct(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
             i += 1;
             id
         } else {
-            return Err(syn::Error::new(tokens[i].span(), "lisp_struct!: expected struct name"));
+            return Err(syn::Error::new(
+                tokens[i].span(),
+                "lisp_struct!: expected struct name",
+            ));
         }
     } else {
-        let span = if i > 0 { tokens[i - 1].span() } else { Span::call_site() };
+        let span = if i > 0 {
+            tokens[i - 1].span()
+        } else {
+            Span::call_site()
+        };
         return Err(syn::Error::new(span, "lisp_struct!: expected struct name"));
     };
 
@@ -617,18 +670,26 @@ pub(crate) fn parse_struct(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
 
     if field_groups.is_empty() {
         // Unit struct
-        return Ok(syn::Item::Verbatim(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; }));
+        return Ok(syn::Item::Verbatim(
+            quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; },
+        ));
     }
 
     // Determine if named fields or tuple struct by inspecting first group contents
     let first_inner: Vec<TokenTree> = field_groups[0].stream().into_iter().collect();
     if first_inner.is_empty() {
-        return Ok(syn::Item::Verbatim(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; }));
+        return Ok(syn::Item::Verbatim(
+            quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; },
+        ));
     }
 
     // Check if this is a named-field struct: first meaningful element is a Group (field definition)
     let is_named = {
-        let check_idx = if is_ident(&first_inner[0], "pub") { 1 } else { 0 };
+        let check_idx = if is_ident(&first_inner[0], "pub") {
+            1
+        } else {
+            0
+        };
         check_idx < first_inner.len() && matches!(&first_inner[check_idx], TokenTree::Group(_))
     };
 
@@ -649,7 +710,8 @@ pub(crate) fn parse_struct(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
                         let field_tokens: Vec<TokenTree> = fg.stream().into_iter().collect();
                         if field_tokens.len() >= 2 {
                             let field_name = &field_tokens[0];
-                            let raw_type: TokenStream2 = field_tokens[1..].iter().cloned().collect();
+                            let raw_type: TokenStream2 =
+                                field_tokens[1..].iter().cloned().collect();
                             let field_type = validate_type(raw_type);
                             if is_pub {
                                 all_fields.push(quote! { pub #field_name: #field_type });

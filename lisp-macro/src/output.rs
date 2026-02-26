@@ -60,27 +60,31 @@ pub(crate) fn paren_wrap(expr: syn::Expr) -> syn::Expr {
 /// Adds semicolons to non-last expression stmts for proper separation in blocks.
 pub(crate) fn build_block_stmts(items: Vec<LispOutput>) -> Vec<syn::Stmt> {
     let len = items.len();
-    items.into_iter().enumerate().map(|(i, output)| {
-        let is_last = i == len - 1;
-        match output {
-            LispOutput::Expr(e) => {
-                if is_last {
-                    syn::Stmt::Expr(e, None) // Last: no semicolon (block return value)
-                } else {
-                    syn::Stmt::Expr(e, Some(syn::token::Semi::default()))
+    items
+        .into_iter()
+        .enumerate()
+        .map(|(i, output)| {
+            let is_last = i == len - 1;
+            match output {
+                LispOutput::Expr(e) => {
+                    if is_last {
+                        syn::Stmt::Expr(e, None) // Last: no semicolon (block return value)
+                    } else {
+                        syn::Stmt::Expr(e, Some(syn::token::Semi::default()))
+                    }
+                }
+                LispOutput::Stmt(s) => s, // Already has proper semicolons
+                LispOutput::Item(item) => syn::Stmt::Item(item),
+                LispOutput::Tokens(t) => {
+                    if is_last {
+                        syn::Stmt::Expr(syn::Expr::Verbatim(t), None)
+                    } else {
+                        // Add semicolon for non-last items; if tokens already end with `;`,
+                        // the double `;;` is harmless (empty statement).
+                        syn::Stmt::Expr(syn::Expr::Verbatim(t), Some(syn::token::Semi::default()))
+                    }
                 }
             }
-            LispOutput::Stmt(s) => s, // Already has proper semicolons
-            LispOutput::Item(item) => syn::Stmt::Item(item),
-            LispOutput::Tokens(t) => {
-                if is_last {
-                    syn::Stmt::Expr(syn::Expr::Verbatim(t), None)
-                } else {
-                    // Add semicolon for non-last items; if tokens already end with `;`,
-                    // the double `;;` is harmless (empty statement).
-                    syn::Stmt::Expr(syn::Expr::Verbatim(t), Some(syn::token::Semi::default()))
-                }
-            }
-        }
-    }).collect()
+        })
+        .collect()
 }

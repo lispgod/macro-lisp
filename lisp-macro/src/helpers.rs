@@ -1,4 +1,4 @@
-use proc_macro2::{Delimiter, TokenTree, Spacing, Punct, TokenStream as TokenStream2};
+use proc_macro2::{Delimiter, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::quote;
 
 // ─── Helper: flatten invisible delimiter groups ─────────────────────────────
@@ -53,9 +53,10 @@ pub(crate) fn is_ident(tt: &TokenTree, name: &str) -> bool {
 pub(crate) fn is_literal_like(tt: &TokenTree) -> bool {
     match tt {
         TokenTree::Literal(_) => true,
-        TokenTree::Group(g) if g.delimiter() == Delimiter::None => {
-            g.stream().into_iter().any(|t| matches!(t, TokenTree::Literal(_)))
-        }
+        TokenTree::Group(g) if g.delimiter() == Delimiter::None => g
+            .stream()
+            .into_iter()
+            .any(|t| matches!(t, TokenTree::Literal(_))),
         _ => false,
     }
 }
@@ -147,12 +148,15 @@ pub(crate) fn consume_type_path(tokens: &[TokenTree]) -> (Vec<TokenTree>, &[Toke
                 i += 1;
                 // Check for :: after ident
                 if i + 1 < tokens.len()
-                    && is_punct(&tokens[i], ':') && i + 1 < tokens.len() && is_punct(&tokens[i + 1], ':') {
-                        result.push(tokens[i].clone());
-                        result.push(tokens[i + 1].clone());
-                        i += 2;
-                        continue;
-                    }
+                    && is_punct(&tokens[i], ':')
+                    && i + 1 < tokens.len()
+                    && is_punct(&tokens[i + 1], ':')
+                {
+                    result.push(tokens[i].clone());
+                    result.push(tokens[i + 1].clone());
+                    i += 2;
+                    continue;
+                }
                 // Check for <...> after ident
                 if i < tokens.len() && is_punct(&tokens[i], '<') {
                     result.push(tokens[i].clone()); // <

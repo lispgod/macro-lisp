@@ -80,11 +80,11 @@
 //! ```
 
 pub use lisp::lisp;
-pub use lisp::lisp_eval;
 pub use lisp::lisp_assign;
-pub use lisp::lisp_impl;
-pub use lisp::lisp_trait;
 pub use lisp::lisp_enum;
-pub use lisp::lisp_struct;
+pub use lisp::lisp_eval;
 pub use lisp::lisp_fn;
+pub use lisp::lisp_impl;
 pub use lisp::lisp_let;
+pub use lisp::lisp_struct;
+pub use lisp::lisp_trait;
