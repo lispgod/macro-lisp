@@ -1520,7 +1520,7 @@ fn eval_const_static(keyword_rest: &[TokenTree], vis: &TokenStream2, is_static: 
         i += 1;
         let type_ts = if let TokenTree::Group(g) = type_tt {
             if g.delimiter() == Delimiter::Parenthesis {
-                // Parenthesized type: evaluate through validate_type
+                // Parenthesized type: parse through validate_type
                 validate_type(g.stream())
             } else {
                 validate_type(std::iter::once(type_tt.clone()).collect())

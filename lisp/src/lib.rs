@@ -230,8 +230,8 @@ macro_rules! lisp {
     // const fn — dispatch to proc macro (MUST precede const item rules)
     ( $(#[$m:meta])* $vis:vis const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis const fn $sym $($rest)+); );
 
-    // const, static, type — delegate to proc-macro with semicolon for item-level output.
-    // The proc-macro provides syn::Type validation and eval_lisp_arg for values.
+    // const, static, type — delegate to proc-macro for syn::Type validation.
+    // The semicolons after lisp_eval! are needed for item-level macro invocations.
     ($vis:vis const $name:ident $($rest:tt)+) => ($crate::lisp_eval!($vis const $name $($rest)+););
     ($vis:vis static $($rest:tt)+) => ($crate::lisp_eval!($vis static $($rest)+););
     ($vis:vis type $name:ident = $($rest:tt)+) => ($crate::lisp_eval!($vis type $name = $($rest)+););
