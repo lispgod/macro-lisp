@@ -211,3 +211,12 @@ fn cond_two_branches() {
         (else "small"));
     assert_eq!(result, "big");
 }
+
+#[test]
+fn for_pattern_destructuring() {
+    let pairs = vec![(1, "one"), (2, "two"), (3, "three")];
+    let mut sum = 0;
+    lisp!(for (i, _name) in pairs
+        (+= sum i));
+    assert_eq!(sum, 6);
+}

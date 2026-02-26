@@ -276,6 +276,11 @@ macro_rules! lisp {
     (let mut $var:ident ( $($e:tt)+ )) => (let mut $var = $crate::lisp!($($e)+););
     (let mut $var:ident $e:expr) => (let mut $var = $e;);
 
+    // let else: (let else (Pat = expr) (fallback))
+    (let else ( $pat:pat_param = $($val:tt)+ ) ( $($fallback:tt)* ) ) => (
+        let $pat = $crate::lisp_arg!($($val)+) else { $crate::lisp!($($fallback)*); };
+    );
+
     // let (immutable)
     (let ($var:ident $typ:ty) ( $($e:tt)+ ) ) => (let $var: $typ = $crate::lisp!( $($e)+););
     (let ($var:ident $typ:ty) $e:expr) => (let $var: $typ = $e;);
@@ -342,6 +347,7 @@ macro_rules! lisp {
     ($l:lifetime loop $( ( $($e:tt)* ) )* ) => ( $l: loop { $( $crate::lisp!( $($e)* ) );* });
     ($l:lifetime while let ( $pattern:pat = $($cond:tt)* ) $( ( $($e:tt)* ) )* ) => ( $l: while let $pattern = $crate::lisp_arg!($($cond)*) { $( $crate::lisp!($($e)*) );* });
     ($l:lifetime while $cond:tt $( ( $($e:tt)* ) )* ) => ( $l: while $crate::lisp_arg!($cond) { $( $crate::lisp!( $($e)* ) );* });
+    ($l:lifetime for ( $($pat:tt)+ ) in $iter:tt $( ( $($e:tt)* ) )* ) => ( $l: for ($($pat)+) in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
     ($l:lifetime for $var:ident in $iter:tt $( ( $($e:tt)* ) )* ) => ( $l: for $var in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
 
     (loop $( ( $($e:tt)* ) )* ) => ( loop { $( $crate::lisp!( $($e)* ) );* });
@@ -352,6 +358,8 @@ macro_rules! lisp {
     // while
     (while $cond:tt $( ( $($e:tt)* ) )* ) => ( while $crate::lisp_arg!($cond) { $( $crate::lisp!( $($e)* ) );* });
 
+    // for with pattern destructuring: (for (pat) in iter (body)...)
+    (for ( $($pat:tt)+ ) in $iter:tt $( ( $($e:tt)* ) )* ) => ( for ($($pat)+) in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
     // for...in
     (for $var:ident in $iter:tt $( ( $($e:tt)* ) )* ) => ( for $var in $crate::lisp_arg!($iter) { $( $crate::lisp!($($e)*) );* } );
 
@@ -517,6 +525,10 @@ macro_rules! lisp {
     // ── Field ────────────────────────────────────────────────
     // . field access (chained)
     (. $obj:tt $( $name:ident )+) => ($crate::lisp_arg!($obj) $(.$name)+);
+    // . tuple index access: (. tuple 0) → tuple.0
+    // Uses lisp_dot_literal! helper to work around Rust's limitation with
+    // `literal` metavariables after `.` in macro_rules expansion.
+    (. $obj:tt $idx:tt) => ($crate::lisp_dot_literal!($crate::lisp_arg!($obj), $idx));
 
     // ── Construction ─────────────────────────────────────────
     // new (path-qualified struct/enum variant construction with spread)
@@ -567,6 +579,12 @@ macro_rules! lisp {
 macro_rules! lisp_arg {
     ( ( $($e:tt)* ) ) => ( $crate::lisp!( $($e)* ) );
     ($e:expr) => ($e);
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! lisp_dot_literal {
+    ($obj:expr, $idx:tt) => {{ let ref __lisp_tmp = $obj; __lisp_tmp . $idx }};
 }
 
 #[macro_export]

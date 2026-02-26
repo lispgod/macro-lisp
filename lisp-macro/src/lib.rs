@@ -979,6 +979,30 @@ fn eval_cond(tokens: &[TokenTree]) -> TokenStream2 {
 fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
     if tokens.is_empty() { return quote! {}; }
 
+    // (let else (Pat = expr) (fallback))
+    if is_ident(&tokens[0], "else") && tokens.len() >= 3 {
+        if let TokenTree::Group(g) = &tokens[1] {
+            if g.delimiter() == Delimiter::Parenthesis {
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                // Find `=` separator
+                if let Some(eq_pos) = inner.iter().position(|t| {
+                    if let TokenTree::Punct(p) = t { p.as_char() == '=' } else { false }
+                }) {
+                    let pat: TokenStream2 = inner[..eq_pos].iter().cloned().collect();
+                    let val_tokens = &inner[eq_pos + 1..];
+                    let val = eval_lisp_expr(val_tokens);
+                    if let Some(TokenTree::Group(fb)) = tokens.get(2) {
+                        if fb.delimiter() == Delimiter::Parenthesis {
+                            let fb_inner: Vec<TokenTree> = fb.stream().into_iter().collect();
+                            let fallback = eval_lisp_expr(&fb_inner);
+                            return quote! { let #pat = #val else { #fallback; }; };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // (let mut var val) or (let var val)
     let mut i = 0;
     let is_mut = is_ident(&tokens[i], "mut");
@@ -1023,13 +1047,28 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
 }
 
 fn eval_for(tokens: &[TokenTree]) -> TokenStream2 {
-    // (for var in iter (body)...)
+    // (for var in iter (body)...) or (for (pat) in iter (body)...)
     if tokens.len() < 3 { return quote! {}; }
-    let var = &tokens[0];
-    // tokens[1] should be `in`
-    let iter_expr = eval_lisp_arg(&tokens[2..3]);
+
+    // Check if first token is a pattern group
+    let (var_ts, in_idx) = if let TokenTree::Group(g) = &tokens[0] {
+        if g.delimiter() == Delimiter::Parenthesis {
+            let inner = g.stream();
+            (quote! { (#inner) }, 1)
+        } else {
+            let v = &tokens[0];
+            (quote! { #v }, 1)
+        }
+    } else {
+        let v = &tokens[0];
+        (quote! { #v }, 1)
+    };
+
+    // tokens[in_idx] should be `in`
+    if in_idx + 1 >= tokens.len() { return quote! {}; }
+    let iter_expr = eval_lisp_arg(&tokens[in_idx + 1..in_idx + 2]);
     let mut body = Vec::new();
-    for tt in &tokens[3..] {
+    for tt in &tokens[in_idx + 2..] {
         if let TokenTree::Group(g) = tt {
             if g.delimiter() == Delimiter::Parenthesis {
                 let inner: Vec<TokenTree> = g.stream().into_iter().collect();
@@ -1037,7 +1076,7 @@ fn eval_for(tokens: &[TokenTree]) -> TokenStream2 {
             }
         }
     }
-    quote! { for #var in #iter_expr { #(#body);* } }
+    quote! { for #var_ts in #iter_expr { #(#body);* } }
 }
 
 fn eval_while(tokens: &[TokenTree]) -> TokenStream2 {
