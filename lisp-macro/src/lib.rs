@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Delimiter, TokenTree, Spacing, Punct, Span};
 use proc_macro_error2::{abort, proc_macro_error};
-use quote::quote;
+use quote::{quote, quote_spanned};
 
 // ─── Debug: pretty-print generated code when `debug-expansion` feature is enabled ───
 #[cfg(feature = "debug-expansion")]
@@ -743,12 +743,6 @@ fn eval_lisp_expr(tokens: &[TokenTree]) -> TokenStream2 {
                     return quote! { (#(#args),*) };
                 }
                 "array" => {
-                    // Check for array-repeat: (array - repeat val count) → [val; count]
-                    if tokens.len() == 5 && is_punct(&tokens[1], '-') && is_ident(&tokens[2], "repeat") {
-                        let val = eval_lisp_arg(&tokens[3..4]);
-                        let count = eval_lisp_arg(&tokens[4..5]);
-                        return quote! { [#val; #count] };
-                    }
                     let args: Vec<TokenStream2> = tokens[1..]
                         .iter()
                         .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
@@ -1005,7 +999,8 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
                         if fb.delimiter() == Delimiter::Parenthesis {
                             let fb_inner: Vec<TokenTree> = fb.stream().into_iter().collect();
                             let fallback = eval_lisp_expr(&fb_inner);
-                            return quote! { let #pat = #val else { #fallback; }; };
+                            let span = tokens[0].span();
+                            return quote_spanned! { span => let #pat = #val else { #fallback; }; };
                         }
                     }
                 }
@@ -1026,14 +1021,16 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
             let inner: Vec<TokenTree> = g.stream().into_iter().collect();
             if inner.len() >= 2 {
                 let var_name = &inner[0];
-                let var_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                let span = var_name.span();
+                let raw_type: TokenStream2 = inner[1..].iter().cloned().collect();
+                let var_type = validate_type(raw_type);
                 i += 1;
                 if i < tokens.len() {
                     let val = eval_lisp_arg(&tokens[i..i+1]);
                     if is_mut {
-                        return quote! { let mut #var_name: #var_type = #val; };
+                        return quote_spanned! { span => let mut #var_name: #var_type = #val; };
                     } else {
-                        return quote! { let #var_name: #var_type = #val; };
+                        return quote_spanned! { span => let #var_name: #var_type = #val; };
                     }
                 }
             }
@@ -1041,18 +1038,19 @@ fn eval_let(tokens: &[TokenTree]) -> TokenStream2 {
     }
 
     let var_name = &tokens[i];
+    let span = var_name.span();
     i += 1;
     if i < tokens.len() {
         let val = eval_lisp_arg(&tokens[i..i+1]);
         if is_mut {
-            quote! { let mut #var_name = #val; }
+            quote_spanned! { span => let mut #var_name = #val; }
         } else {
-            quote! { let #var_name = #val; }
+            quote_spanned! { span => let #var_name = #val; }
         }
     } else if is_mut {
-        quote! { let mut #var_name; }
+        quote_spanned! { span => let mut #var_name; }
     } else {
-        quote! { let #var_name; }
+        quote_spanned! { span => let #var_name; }
     }
 }
 
@@ -1363,7 +1361,8 @@ pub fn lisp_assign(input: TokenStream) -> TokenStream {
         }
     };
 
-    let result = quote! {
+    let span = lhs_tokens.first().map_or(Span::call_site(), |t| t.span());
+    let result = quote_spanned! { span =>
         #lhs_ts #op_ts #rhs_ts;
     };
     debug_expansion("lisp_assign!", &result);
@@ -1972,7 +1971,8 @@ pub fn lisp_let(input: TokenStream) -> TokenStream {
 
     let mut_kw = if is_mut { quote! { mut } } else { quote! {} };
 
-    let result = quote! {
+    let span = pattern_tokens.first().map_or(Span::call_site(), |t| t.span());
+    let result = quote_spanned! { span =>
         let #mut_kw #pattern_ts = #val_ts;
     };
     debug_expansion("lisp_let!", &result);

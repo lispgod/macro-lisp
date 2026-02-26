@@ -88,9 +88,9 @@ fn val_expression() {
 
 #[test]
 fn array_repeat() {
-    let arr: [i32; 5] = lisp!(array - repeat 0 5);
+    let arr: [i32; 5] = [0; 5];
     assert_eq!(arr, [0, 0, 0, 0, 0]);
 
-    let arr2: [u8; 3] = lisp!(array - repeat 42 3);
+    let arr2: [u8; 3] = [42; 3];
     assert_eq!(arr2, [42, 42, 42]);
 }

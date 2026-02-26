@@ -554,7 +554,6 @@ macro_rules! lisp {
     (tuple $single:tt) => (($crate::lisp_arg!($single),));
     (tuple $($e:tt)* ) => ( ($($crate::lisp_arg!($e)),*) );
     (vec $($e:tt)* ) => ( vec![$($crate::lisp_arg!($e)),*] );
-    (array - repeat $val:tt $count:tt) => ([$crate::lisp_arg!($val); $crate::lisp_arg!($count)]);
     (array $($e:tt)* ) => ( [$($crate::lisp_arg!($e)),*] );
 
     // ── Val ──────────────────────────────────────────────────
@@ -577,6 +576,9 @@ macro_rules! lisp {
     ( $sym:ident $( $e:tt )* ) => ( $sym ( $($crate::lisp_arg!($e)),* ) );
 
     ($e:expr) => ($e);
+
+    // ── Error catch-all ──────────────────────────────────────
+    ($($t:tt)*) => ( compile_error!(concat!("lisp!: unrecognized form: `", stringify!($($t)*), "`")) );
 }
 
 #[macro_export]
