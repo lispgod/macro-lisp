@@ -188,7 +188,12 @@ pub fn parse_top_level_exprs(source: &str, file: &Path) -> Result<Vec<TopLevelEx
             let start_col = col;
             let start_pos = pos;
 
-            while pos < len && !chars[pos].is_whitespace() && chars[pos] != '(' && chars[pos] != ')' && chars[pos] != ';' {
+            while pos < len
+                && !chars[pos].is_whitespace()
+                && chars[pos] != '('
+                && chars[pos] != ')'
+                && chars[pos] != ';'
+            {
                 advance(&chars, &mut pos, &mut line, &mut col, 1);
             }
 
@@ -246,7 +251,8 @@ mod tests {
 
     #[test]
     fn test_multiple_expressions() {
-        let src = "(fn add ((a i32) (b i32)) i32\n  (+ a b))\n\n(fn main () ()\n  (println! \"hello\"))";
+        let src =
+            "(fn add ((a i32) (b i32)) i32\n  (+ a b))\n\n(fn main () ()\n  (println! \"hello\"))";
         let exprs = parse(src);
         assert_eq!(exprs.len(), 2);
         assert!(exprs[0].text.starts_with("(fn add"));

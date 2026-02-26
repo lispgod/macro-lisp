@@ -165,7 +165,9 @@ fn generic_fn_where() {
 
 #[test]
 fn method_ref_self() {
-    struct Counter { val: i32 }
+    struct Counter {
+        val: i32,
+    }
     lisp!(impl Counter
         (fn get ((&self)) i32
             (self.val)));
@@ -175,7 +177,9 @@ fn method_ref_self() {
 
 #[test]
 fn method_mut_self() {
-    struct Counter { val: i32 }
+    struct Counter {
+        val: i32,
+    }
     lisp!(impl Counter
         (fn inc ((&mut self))
             (+= self.val 1)));
@@ -187,7 +191,9 @@ fn method_mut_self() {
 
 #[test]
 fn method_owned_self() {
-    struct Wrapper { val: i32 }
+    struct Wrapper {
+        val: i32,
+    }
     lisp!(impl Wrapper
         (fn into_val ((self)) i32
             (self.val)));
@@ -197,7 +203,9 @@ fn method_owned_self() {
 
 #[test]
 fn method_typed_self() {
-    struct Wrapper { val: i32 }
+    struct Wrapper {
+        val: i32,
+    }
     lisp!(impl Wrapper
         (fn boxed_get ((self Box<Self>)) i32
             (self.val)));

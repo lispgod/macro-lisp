@@ -136,7 +136,11 @@ fn cmd_run(
     }
 
     if verbose {
-        eprintln!("==> Parsed {} top-level expression(s) from {}", exprs.len(), file.display());
+        eprintln!(
+            "==> Parsed {} top-level expression(s) from {}",
+            exprs.len(),
+            file.display()
+        );
     }
 
     // Generate Rust source
@@ -243,7 +247,11 @@ fn cmd_check(
     let compile_result = compiler::compile(&rust_source, work_dir.path(), &config)?;
 
     if compile_result.success {
-        eprintln!("✓ {} compiles successfully ({} expression(s))", file.display(), exprs.len());
+        eprintln!(
+            "✓ {} compiles successfully ({} expression(s))",
+            file.display(),
+            exprs.len()
+        );
         Ok(())
     } else {
         compiler::display_diagnostics(&compile_result.diagnostics, &compile_result.raw_stderr);

@@ -4,6 +4,43 @@ A detailed plan for improving, testing, and extending `macro-lisp` — from bett
 
 ---
 
+## ✅ Phase 2: S-Expression File Loader & Compiler Driver — COMPLETE
+
+The CLI tool `macro-lisp` can now load `.lisp` files, compile them to Rust via the `lisp!()` macro, and run the result.
+
+### What was built
+
+- **`macro-lisp-cli/` crate** added to the workspace with three subcommands:
+  - `macro-lisp run <file>` — compile and execute a `.lisp` file
+  - `macro-lisp check <file>` — compile only, report errors
+  - `macro-lisp expand <file>` — show the generated Rust source code
+- **`loader.rs`** — S-expression file parser that:
+  - Splits `.lisp` files into top-level S-expressions via balanced-parenthesis tracking
+  - Handles string literals (parentheses inside strings don't count)
+  - Strips `;` and `;;` line comments
+  - Preserves source spans (file, line, column) for error reporting
+- **`codegen.rs`** — generates a compilable Rust source file wrapping each S-expression in `lisp!()`
+- **`compiler.rs`** — creates a temp Cargo project, invokes `cargo build`, captures diagnostics:
+  - Auto-detects the macro-lisp workspace root for local path dependencies
+  - Falls back to crates.io `macro_lisp` if not in the workspace
+  - Displays human-readable `rustc` error messages on failure
+- **5 sample `.lisp` scripts** in `scripts/`: hello, factorial, fibonacci, fizzbuzz, collatz
+- **14 unit tests** for the loader and codegen modules
+
+### Usage
+
+```bash
+# From the workspace root:
+cargo run -p macro-lisp-cli -- run scripts/factorial.lisp
+cargo run -p macro-lisp-cli -- check scripts/hello.lisp
+cargo run -p macro-lisp-cli -- expand scripts/fibonacci.lisp
+
+# With verbose output:
+cargo run -p macro-lisp-cli -- run scripts/hello.lisp --verbose
+```
+
+---
+
 ## Phase 1: Testing & Quality Foundation
 
 Strengthen the existing macro system with comprehensive testing before building new features.
@@ -47,91 +84,32 @@ Strengthen the existing macro system with comprehensive testing before building 
 
 ---
 
-## Phase 2: S-Expression File Loader & Compiler Driver
+## Phase 2 (remaining): File Loader Enhancements
 
-Build a standalone binary that reads `.lisp` source files, wraps them in `lisp!()`, compiles them with `rustc`, and reports results.
+The core file loader and compiler driver are complete. Remaining enhancements:
 
-### 2.1 File Format & Parser
+### 2.1 Source Map for Error Remapping
 
-- **Goal:** Define and parse a `.lisp` file format that can hold top-level S-expressions.
-- **File format:**
-  ```lisp
-  ;; example.lisp
-  (fn factorial ((n i32)) i32
-    (if (<= n 1)
-      1
-      (* n (factorial (- n 1)))))
-
-  (fn main () ()
-    (let result (factorial 10))
-    (println! "10! = {}" result))
-  ```
+- **Goal:** Map `rustc` error byte positions in the generated `.rs` file back to the original `.lisp` source spans.
+- **Status:** The loader already tracks spans; the source map linking generated → original positions is the next step.
 - **Tasks:**
-  - Write a lightweight front-end parser that:
-    1. Reads a `.lisp` file from disk.
-    2. Splits it into top-level S-expressions (balanced-parentheses splitting, respecting strings and comments).
-    3. Preserves source location information (byte offset, line, column) for every token and parenthesized group.
-  - Store parsed expressions in an intermediate representation (IR) that retains source spans:
-    ```rust
-    struct SourceSpan {
-        file: PathBuf,
-        start_line: usize,
-        start_col: usize,
-        end_line: usize,
-        end_col: usize,
-    }
+  - Build a `SourceMap` struct that records the byte-range mapping between generated `.rs` and `.lisp` files.
+  - When `rustc` reports an error at a generated `.rs` position, translate it to the corresponding `.lisp` line/column.
+  - Display both the `.lisp` source and the generated Rust in the error output (Phase 5 dual-view).
 
-    enum SExpr {
-        Atom { value: String, span: SourceSpan },
-        List { children: Vec<SExpr>, span: SourceSpan },
-    }
-    ```
+### 2.2 Compilation Caching
 
-### 2.2 Code Generation: Wrapping in `lisp!()`
-
-- **Goal:** Transform parsed S-expressions into a compilable Rust source file.
+- **Goal:** Avoid rebuilding the `macro_lisp` dependency on every run.
 - **Tasks:**
-  - Generate a temporary `.rs` file containing:
-    ```rust
-    use macro_lisp::lisp;
+  - Use a persistent temp directory (e.g., `~/.cache/macro-lisp/`) so incremental compilation reuses previously compiled artifacts.
+  - Only regenerate the `src/main.rs` when the `.lisp` source changes.
 
-    lisp!(
-        // ... each top-level S-expression from the .lisp file ...
-    );
-    ```
-  - Maintain a **source map** that maps byte ranges in the generated `.rs` file back to the original `.lisp` file spans. This is critical for Phase 5 (error handling).
-  - Support a `--emit-rust` flag that writes the generated `.rs` to stdout or a file for inspection, even before compilation.
+### 2.3 `fmt` Subcommand (Future)
 
-### 2.3 Compilation via `rustc`
-
-- **Goal:** Compile the generated Rust source and capture results.
-- **Approach — use `rustc` as a library or as a subprocess:**
-  - **Option A (subprocess — recommended for v1):** Invoke `rustc` (or `cargo`) as a child process on the generated `.rs` file. Parse JSON-formatted diagnostics from stderr.
-  - **Option B (library — future):** Use the `rustc_driver` and `rustc_interface` crates to invoke the compiler programmatically. This provides deeper integration (e.g., access to the AST after macro expansion) but depends on nightly Rust and unstable APIs.
+- **Goal:** Auto-format `.lisp` source files.
 - **Tasks:**
-  - Implement Option A first:
-    1. Write the generated `.rs` to a temp directory.
-    2. Invoke `rustc --edition <edition> --error-format=json -L <path-to-macro-lisp> <generated>.rs` (detect the edition from the project's `Cargo.toml`, defaulting to `2021`).
-    3. Capture stdout (compiled binary path) and stderr (diagnostics JSON).
-    4. Parse `rustc` JSON diagnostics into structured error objects.
-  - If compilation succeeds, run the resulting binary and capture its stdout/stderr.
-  - Display the output to the user.
-
-### 2.4 CLI Interface
-
-- **Goal:** A polished command-line tool for running `.lisp` files.
-- **Usage:**
-  ```
-  macro-lisp run example.lisp          # compile and run
-  macro-lisp check example.lisp        # compile only, report errors
-  macro-lisp expand example.lisp       # show generated Rust code
-  macro-lisp fmt example.lisp          # (future) format S-expressions
-  ```
-- **Tasks:**
-  - Create a new binary crate in the workspace (e.g., `macro-lisp-cli/`).
-  - Use [`clap`](https://crates.io/crates/clap) for argument parsing.
-  - Wire up the file loader (2.1), code generator (2.2), and compiler driver (2.3).
-  - Add `--verbose` flag for debugging (show generated Rust, `rustc` invocation, timing).
+  - Implement an S-expression pretty-printer with configurable indentation.
+  - `macro-lisp fmt example.lisp` reformats in place.
 
 ---
 
@@ -330,40 +308,39 @@ The crown jewel — rich, context-aware error messages that bridge the gap betwe
 
 ## Milestone Summary
 
-| Milestone | Key Deliverable | Dependencies |
+| Milestone | Key Deliverable | Status |
 |---|---|---|
-| **Phase 1** | Comprehensive tests, CI hardened | None |
-| **Phase 2** | `macro-lisp run example.lisp` works | Phase 1 |
-| **Phase 3** | Interactive REPL with history & `:expand` | Phase 2 |
-| **Phase 4** | VS Code extension with LSP diagnostics | Phase 2, Phase 5.1–5.2 |
-| **Phase 5** | Dual-view errors with source spans | Phase 2 |
+| **Phase 2 (core)** | `macro-lisp run example.lisp` works | ✅ Complete |
+| **Phase 1** | Comprehensive tests, CI hardened | Planned |
+| **Phase 2 (remaining)** | Source map, caching, `fmt` | Planned |
+| **Phase 3** | Interactive REPL with history & `:expand` | Planned |
+| **Phase 4** | VS Code extension with LSP diagnostics | Planned |
+| **Phase 5** | Dual-view errors with source spans | Planned |
 
-Phases 2 and 5 can be developed in parallel. Phase 3 builds on Phase 2. Phase 4 builds on Phases 2 and 5.
+Phases 2 (remaining) and 5 can be developed in parallel. Phase 3 builds on Phase 2. Phase 4 builds on Phases 2 and 5.
 
 ---
 
-## Suggested Crate / Workspace Layout
+## Crate / Workspace Layout
 
 ```
 macro-lisp/
 ├── lisp-macro/           # proc macro crate (existing)
 ├── lisp/                 # public library crate (existing)
-├── macro-lisp-cli/       # CLI binary: run, check, expand, fmt
+├── macro-lisp-cli/       # ✅ CLI binary: run, check, expand
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs       # clap entry point
-│       ├── loader.rs     # .lisp file parser
+│       ├── loader.rs     # .lisp file parser with span tracking
 │       ├── codegen.rs    # wrap in lisp!(), generate .rs
-│       ├── compiler.rs   # invoke rustc, parse diagnostics
-│       ├── sourcemap.rs  # .lisp ↔ .rs span mapping
-│       └── display.rs    # ariadne/miette error rendering
-├── macro-lisp-repl/      # REPL binary
+│       └── compiler.rs   # invoke cargo, parse diagnostics
+├── macro-lisp-repl/      # (planned) REPL binary
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs       # rustyline loop
 │       ├── session.rs    # accumulated definitions state
 │       └── commands.rs   # :expand, :type, :reset, etc.
-├── macro-lisp-lsp/       # Language server binary
+├── macro-lisp-lsp/       # (planned) Language server binary
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs       # LSP server entry
@@ -372,12 +349,15 @@ macro-lisp/
 │       ├── hover.rs
 │       └── completion.rs
 ├── editors/
-│   └── vscode/           # VS Code extension
-│       ├── package.json
-│       ├── syntaxes/macro-lisp.tmLanguage.json
-│       └── src/extension.ts
-├── tests/                # existing + new test files
-├── examples/             # existing + new examples
+│   └── vscode/           # (planned) VS Code extension
+├── scripts/              # ✅ Sample .lisp programs
+│   ├── hello.lisp
+│   ├── factorial.lisp
+│   ├── fibonacci.lisp
+│   ├── fizzbuzz.lisp
+│   └── collatz.lisp
+├── tests/                # existing test suite
+├── examples/             # existing Rust examples
 ├── Cargo.toml            # workspace root
 ├── ROADMAP.md            # this file
 ├── REFERENCE.md          # syntax reference

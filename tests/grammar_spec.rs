@@ -5,7 +5,6 @@
 
 /// Tests for all new grammar specification forms.
 /// Each test validates a specific form from the Complete Grammar — Step 1.
-
 use macro_lisp::lisp;
 
 // ── Unary Negation ──────────────────────────────────────────
@@ -198,7 +197,7 @@ fn range_dot_dot_inclusive() {
 #[test]
 fn range_dot_dot_half_open() {
     let v = vec![10, 20, 30, 40, 50];
-    let slice = &v[lisp!(.. 2)];
+    let slice = &v[lisp!(..2)];
     assert_eq!(slice, &[30, 40, 50]);
 }
 
@@ -213,7 +212,10 @@ fn range_dot_dot_full() {
 
 #[test]
 fn dot_field_access() {
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     let p = Point { x: 10, y: 20 };
     let result: i32 = lisp!(. p x);
     assert_eq!(result, 10);
@@ -221,9 +223,15 @@ fn dot_field_access() {
 
 #[test]
 fn dot_chained_field_access() {
-    struct Inner { val: i32 }
-    struct Outer { inner: Inner }
-    let o = Outer { inner: Inner { val: 42 } };
+    struct Inner {
+        val: i32,
+    }
+    struct Outer {
+        inner: Inner,
+    }
+    let o = Outer {
+        inner: Inner { val: 42 },
+    };
     let result: i32 = lisp!(. o inner val);
     assert_eq!(result, 42);
 }
@@ -246,7 +254,10 @@ fn array_empty() {
 
 #[test]
 fn struct_lit_construction() {
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     let p: Point = lisp!(new Point (x 10) (y 20));
     assert_eq!(p.x, 10);
     assert_eq!(p.y, 20);

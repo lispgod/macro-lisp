@@ -113,14 +113,14 @@ lisp!(impl Describable for Point
 
 // Trait impl: HasArea for Shape
 lisp!(impl HasArea for Shape
-    (fn area ((&self)) f64
-        (rust {
-            match self {
-                Shape::Circle(r) => std::f64::consts::PI * r * r,
-                Shape::Rect { w, h } => w * h,
-                Shape::Unit => 0.0,
-            }
-        })));
+(fn area ((&self)) f64
+    (rust {
+        match self {
+            Shape::Circle(r) => std::f64::consts::PI * r * r,
+            Shape::Rect { w, h } => w * h,
+            Shape::Unit => 0.0,
+        }
+    })));
 
 // Trait impl: core::ops::Add for Point
 lisp!(impl core::ops::Add for Point
@@ -152,10 +152,10 @@ lisp!(impl core::ops::Neg for Point
 // Trait impl: core::ops::Drop — verify drop is called
 lisp!(struct DropCounter ((count &'static std::cell::Cell<u32>)));
 lisp!(impl core::ops::Drop for DropCounter
-    (fn drop ((&mut self))
-        (rust {
-            self.count.set(self.count.get() + 1);
-        })));
+(fn drop ((&mut self))
+    (rust {
+        self.count.set(self.count.get() + 1);
+    })));
 
 // Trait impl: core::convert::From
 lisp!(impl core::convert::From<(i32, i32)> for Point
@@ -300,8 +300,8 @@ fn logical_operators() {
     assert!(!lisp!(&& true false));
     assert!(lisp!(|| false true));
     assert!(!lisp!(|| false false));
-    assert!(lisp!(! false));
-    assert!(!lisp!(! true));
+    assert!(lisp!(!false));
+    assert!(!lisp!(!true));
 }
 
 #[test]
@@ -317,7 +317,7 @@ fn bitwise_operators() {
 fn unary_negation_and_not() {
     let x = 5;
     assert_eq!(lisp!(neg x), -5);
-    assert_eq!(lisp!(! true), false);
+    assert_eq!(lisp!(!true), false);
 }
 
 // =============================================================================
@@ -670,7 +670,7 @@ fn as_casting() {
 fn try_operator() {
     fn parse_num(s: &str) -> Result<i32, std::num::ParseIntError> {
         let val: Result<i32, _> = s.parse();
-        let n = lisp!(? val);
+        let n = lisp!(?val);
         Ok(lisp!(+ n 1))
     }
     assert_eq!(parse_num("5").unwrap(), 6);
@@ -692,9 +692,15 @@ fn dot_field_access() {
 
 #[test]
 fn dot_chained_field_access() {
-    struct Inner { val: i32 }
-    struct Outer { inner: Inner }
-    let o = Outer { inner: Inner { val: 42 } };
+    struct Inner {
+        val: i32,
+    }
+    struct Outer {
+        inner: Inner,
+    }
+    let o = Outer {
+        inner: Inner { val: 42 },
+    };
     assert_eq!(lisp!(. o inner val), 42);
 }
 
@@ -702,17 +708,21 @@ fn dot_chained_field_access() {
 fn ranges() {
     // Exclusive range
     lisp!(let mut sum 0);
-    for i in lisp!(.. 0 5) { sum += i; }
+    for i in lisp!(.. 0 5) {
+        sum += i;
+    }
     assert_eq!(sum, 10);
 
     // Inclusive range
     lisp!(let mut sum2 0);
-    for i in lisp!(..= 0 5) { sum2 += i; }
+    for i in lisp!(..= 0 5) {
+        sum2 += i;
+    }
     assert_eq!(sum2, 15);
 
     // Open-ended range from index 2 for slicing
     let v = vec![10, 20, 30, 40, 50];
-    let slice = &v[lisp!(.. 2)];
+    let slice = &v[lisp!(..2)];
     assert_eq!(slice, &[30, 40, 50]);
 
     // Full range
@@ -911,11 +921,13 @@ fn trait_drop() {
     }
     DROP_COUNT.with(|c| c.set(0));
     {
-        let _guard = DropCounter { count: DROP_COUNT.with(|c| {
-            // Safety: the Cell lives in thread-local storage for the duration of this test.
-            // We transmute the lifetime to 'static so it can be stored in DropCounter.
-            unsafe { &*(c as *const Cell<u32>) }
-        })};
+        let _guard = DropCounter {
+            count: DROP_COUNT.with(|c| {
+                // Safety: the Cell lives in thread-local storage for the duration of this test.
+                // We transmute the lifetime to 'static so it can be stored in DropCounter.
+                unsafe { &*(c as *const Cell<u32>) }
+            }),
+        };
     }
     DROP_COUNT.with(|c| assert_eq!(c.get(), 1));
 }
@@ -1013,9 +1025,9 @@ fn fizzbuzz() {
                         (out.push "Buzz")
                         (out.push "number")))))
         (val out));
-    assert_eq!(result[0], "number");    // 1
-    assert_eq!(result[2], "Fizz");      // 3
-    assert_eq!(result[4], "Buzz");      // 5
+    assert_eq!(result[0], "number"); // 1
+    assert_eq!(result[2], "Fizz"); // 3
+    assert_eq!(result[4], "Buzz"); // 5
     assert_eq!(result[14], "FizzBuzz"); // 15
     assert_eq!(result.len(), 20);
 }

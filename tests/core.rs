@@ -318,8 +318,8 @@ mod tests {
 
     #[test]
     fn test_not() {
-        assert_eq!(true, lisp!(! false));
-        assert_eq!(false, lisp!(! true));
+        assert_eq!(true, lisp!(!false));
+        assert_eq!(false, lisp!(!true));
     }
 
     #[test]

@@ -286,7 +286,10 @@ fn let_nested_tuple_destructure() {
 
 #[test]
 fn let_struct_destructure() {
-    struct Point { x: i32, y: i32 }
+    struct Point {
+        x: i32,
+        y: i32,
+    }
     let p = Point { x: 10, y: 20 };
     lisp!(let Point { x, y } p);
     assert_eq!(x, 10);

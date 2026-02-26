@@ -220,7 +220,9 @@
 //! Between `lisp!()` invocations, use regular Rust `//` comments.
 
 // Re-export proc macros so users see one unified crate.
-pub use lisp_macro::{lisp_assign, lisp_eval, lisp_impl, lisp_trait, lisp_enum, lisp_struct, lisp_fn, lisp_let};
+pub use lisp_macro::{
+    lisp_assign, lisp_enum, lisp_eval, lisp_fn, lisp_impl, lisp_let, lisp_struct, lisp_trait,
+};
 
 #[macro_export]
 macro_rules! lisp {

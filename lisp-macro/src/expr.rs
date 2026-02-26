@@ -1,38 +1,55 @@
-use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2, Spacing, Punct};
+use proc_macro2::{Delimiter, Punct, Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::quote;
 
-use crate::helpers::{is_punct, is_ident, consume_type_path, validate_type};
-use crate::output::{LispOutput, paren_wrap, build_block_stmts};
-use crate::shared::{parse_body_items};
-use crate::forms::{eval_if, eval_cond, eval_match, eval_for, eval_while, eval_let, eval_closure, eval_item_form};
+use crate::forms::{
+    eval_closure, eval_cond, eval_for, eval_if, eval_item_form, eval_let, eval_match, eval_while,
+};
+use crate::helpers::{consume_type_path, is_ident, is_punct, validate_type};
+use crate::output::{build_block_stmts, paren_wrap, LispOutput};
+use crate::shared::parse_body_items;
 
 // ─── syn AST construction helpers ────────────────────────────────────────────
 
 /// Build a function call expression: `func(arg1, arg2, ...)`
 fn make_call(func: syn::Expr, args: Vec<syn::Expr>) -> syn::Expr {
     let mut punct_args = syn::punctuated::Punctuated::new();
-    for arg in args { punct_args.push(arg); }
+    for arg in args {
+        punct_args.push(arg);
+    }
     syn::Expr::Call(syn::ExprCall {
-        attrs: vec![], func: Box::new(func),
-        paren_token: syn::token::Paren::default(), args: punct_args,
+        attrs: vec![],
+        func: Box::new(func),
+        paren_token: syn::token::Paren::default(),
+        args: punct_args,
     })
 }
 
 /// Build a method call expression: `receiver.method(arg1, arg2, ...)`
-fn make_method_call(receiver: syn::Expr, method: proc_macro2::Ident, args: Vec<syn::Expr>) -> syn::Expr {
+fn make_method_call(
+    receiver: syn::Expr,
+    method: proc_macro2::Ident,
+    args: Vec<syn::Expr>,
+) -> syn::Expr {
     let mut punct_args = syn::punctuated::Punctuated::new();
-    for arg in args { punct_args.push(arg); }
+    for arg in args {
+        punct_args.push(arg);
+    }
     syn::Expr::MethodCall(syn::ExprMethodCall {
-        attrs: vec![], receiver: Box::new(receiver),
-        dot_token: syn::token::Dot::default(), method, turbofish: None,
-        paren_token: syn::token::Paren::default(), args: punct_args,
+        attrs: vec![],
+        receiver: Box::new(receiver),
+        dot_token: syn::token::Dot::default(),
+        method,
+        turbofish: None,
+        paren_token: syn::token::Paren::default(),
+        args: punct_args,
     })
 }
 
 /// Build a field access chain: `obj.field1.field2...`
 fn make_field_access(base: syn::Expr, field: &proc_macro2::Ident) -> syn::Expr {
     syn::Expr::Field(syn::ExprField {
-        attrs: vec![], base: Box::new(base),
+        attrs: vec![],
+        base: Box::new(base),
         dot_token: syn::token::Dot::default(),
         member: syn::Member::Named(field.clone()),
     })
@@ -91,8 +108,8 @@ pub(crate) fn eval_variadic_op(operands: &[TokenTree], op: syn::BinOp) -> syn::E
 
 /// Evaluate a compound assignment: `(op= lhs... rhs)` → `lhs op= rhs;`
 pub(crate) fn eval_compound_assign(rest: &[TokenTree], op_char: char) -> TokenStream2 {
-    let lhs: TokenStream2 = rest[..rest.len()-1].iter().cloned().collect();
-    let rhs = eval_lisp_arg(&rest[rest.len()-1..]);
+    let lhs: TokenStream2 = rest[..rest.len() - 1].iter().cloned().collect();
+    let rhs = eval_lisp_arg(&rest[rest.len() - 1..]);
     let op = Punct::new(op_char, Spacing::Joint);
     quote! { #lhs #op = #rhs; }
 }
@@ -100,7 +117,9 @@ pub(crate) fn eval_compound_assign(rest: &[TokenTree], op_char: char) -> TokenSt
 /// Dispatch punctuation-based expressions in eval_lisp_expr.
 /// Returns Some(result) if handled, None otherwise.
 pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
-    let TokenTree::Punct(p) = &tokens[0] else { return None };
+    let TokenTree::Punct(p) = &tokens[0] else {
+        return None;
+    };
     let ch = p.as_char();
 
     // ── Two-character operators (check second punct token first) ──
@@ -118,12 +137,16 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                                 if tokens.len() >= 5 {
                                     let a = eval_lisp_arg(&tokens[3..4]);
                                     let b = eval_lisp_arg(&tokens[4..5]);
-                                    return Some(LispOutput::Expr(syn::Expr::Range(syn::ExprRange {
-                                        attrs: vec![],
-                                        start: Some(Box::new(a)),
-                                        limits: syn::RangeLimits::Closed(syn::token::DotDotEq::default()),
-                                        end: Some(Box::new(b)),
-                                    })));
+                                    return Some(LispOutput::Expr(syn::Expr::Range(
+                                        syn::ExprRange {
+                                            attrs: vec![],
+                                            start: Some(Box::new(a)),
+                                            limits: syn::RangeLimits::Closed(
+                                                syn::token::DotDotEq::default(),
+                                            ),
+                                            end: Some(Box::new(b)),
+                                        },
+                                    )));
                                 }
                             }
                         }
@@ -160,16 +183,54 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                     }
                 }
                 // Comparison operators: operands start at index 2
-                ('=', '=') if tokens.len() >= 4 => return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Eq(syn::token::EqEq::default())))),
-                ('!', '=') if tokens.len() >= 4 => return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Ne(syn::token::Ne::default())))),
-                ('>', '=') if tokens.len() >= 4 => return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Ge(syn::token::Ge::default())))),
-                ('<', '=') if tokens.len() >= 4 => return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Le(syn::token::Le::default())))),
+                ('=', '=') if tokens.len() >= 4 => {
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Eq(syn::token::EqEq::default()),
+                    )))
+                }
+                ('!', '=') if tokens.len() >= 4 => {
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Ne(syn::token::Ne::default()),
+                    )))
+                }
+                ('>', '=') if tokens.len() >= 4 => {
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Ge(syn::token::Ge::default()),
+                    )))
+                }
+                ('<', '=') if tokens.len() >= 4 => {
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Le(syn::token::Le::default()),
+                    )))
+                }
                 // Logical operators: operands start at index 2
-                ('&', '&') if tokens.len() >= 4 => return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::And(syn::token::AndAnd::default())))),
-                ('|', '|') if tokens.len() >= 4 => return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Or(syn::token::OrOr::default())))),
+                ('&', '&') if tokens.len() >= 4 => {
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::And(syn::token::AndAnd::default()),
+                    )))
+                }
+                ('|', '|') if tokens.len() >= 4 => {
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Or(syn::token::OrOr::default()),
+                    )))
+                }
                 // Compound assignment operators: (op= lhs... rhs)
-                ('+', '=') | ('-', '=') | ('*', '=') | ('/', '=') | ('%', '=')
-                | ('&', '=') | ('|', '=') | ('^', '=') if tokens.len() >= 4 => {
+                ('+', '=')
+                | ('-', '=')
+                | ('*', '=')
+                | ('/', '=')
+                | ('%', '=')
+                | ('&', '=')
+                | ('|', '=')
+                | ('^', '=')
+                    if tokens.len() >= 4 =>
+                {
                     return Some(LispOutput::Tokens(eval_compound_assign(&tokens[2..], ch)));
                 }
                 // Shift operators: (<< a b) → a << b, (>> a b) → a >> b
@@ -177,21 +238,27 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                     // Check for <<= (shift-left-assign): third token is '='
                     if tokens.len() >= 5 && is_punct(&tokens[2], '=') {
                         let rest = &tokens[3..];
-                        let lhs: TokenStream2 = rest[..rest.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&rest[rest.len()-1..]);
+                        let lhs: TokenStream2 = rest[..rest.len() - 1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&rest[rest.len() - 1..]);
                         return Some(LispOutput::Tokens(quote! { #lhs <<= #rhs; }));
                     }
-                    return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Shl(syn::token::Shl::default()))));
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Shl(syn::token::Shl::default()),
+                    )));
                 }
                 ('>', '>') if tokens.len() >= 4 => {
                     // Check for >>= (shift-right-assign): third token is '='
                     if tokens.len() >= 5 && is_punct(&tokens[2], '=') {
                         let rest = &tokens[3..];
-                        let lhs: TokenStream2 = rest[..rest.len()-1].iter().cloned().collect();
-                        let rhs = eval_lisp_arg(&rest[rest.len()-1..]);
+                        let lhs: TokenStream2 = rest[..rest.len() - 1].iter().cloned().collect();
+                        let rhs = eval_lisp_arg(&rest[rest.len() - 1..]);
                         return Some(LispOutput::Tokens(quote! { #lhs >>= #rhs; }));
                     }
-                    return Some(LispOutput::Expr(eval_binary_op(&tokens[2..], syn::BinOp::Shr(syn::token::Shr::default()))));
+                    return Some(LispOutput::Expr(eval_binary_op(
+                        &tokens[2..],
+                        syn::BinOp::Shr(syn::token::Shr::default()),
+                    )));
                 }
                 _ => {}
             }
@@ -201,22 +268,66 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
     // ── Single-character operators ──
     match ch {
         // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...), (% a b)
-        '+' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::Add(syn::token::Plus::default())))),
-        '-' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::Sub(syn::token::Minus::default())))),
-        '*' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::Mul(syn::token::Star::default())))),
-        '/' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::Div(syn::token::Slash::default())))),
-        '&' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::BitAnd(syn::token::And::default())))),
-        '|' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::BitOr(syn::token::Or::default())))),
-        '^' if tokens.len() >= 3 => return Some(LispOutput::Expr(eval_variadic_op(&tokens[1..], syn::BinOp::BitXor(syn::token::Caret::default())))),
+        '+' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::Add(syn::token::Plus::default()),
+            )))
+        }
+        '-' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::Sub(syn::token::Minus::default()),
+            )))
+        }
+        '*' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::Mul(syn::token::Star::default()),
+            )))
+        }
+        '/' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::Div(syn::token::Slash::default()),
+            )))
+        }
+        '&' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::BitAnd(syn::token::And::default()),
+            )))
+        }
+        '|' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::BitOr(syn::token::Or::default()),
+            )))
+        }
+        '^' if tokens.len() >= 3 => {
+            return Some(LispOutput::Expr(eval_variadic_op(
+                &tokens[1..],
+                syn::BinOp::BitXor(syn::token::Caret::default()),
+            )))
+        }
         '%' if tokens.len() == 3 => {
-            return Some(LispOutput::Expr(eval_binary_op(&tokens[1..], syn::BinOp::Rem(syn::token::Percent::default()))));
+            return Some(LispOutput::Expr(eval_binary_op(
+                &tokens[1..],
+                syn::BinOp::Rem(syn::token::Percent::default()),
+            )));
         }
         // Simple comparison: (> a b), (< a b)
         '>' if tokens.len() == 3 => {
-            return Some(LispOutput::Expr(eval_binary_op(&tokens[1..], syn::BinOp::Gt(syn::token::Gt::default()))));
+            return Some(LispOutput::Expr(eval_binary_op(
+                &tokens[1..],
+                syn::BinOp::Gt(syn::token::Gt::default()),
+            )));
         }
         '<' if tokens.len() == 3 => {
-            return Some(LispOutput::Expr(eval_binary_op(&tokens[1..], syn::BinOp::Lt(syn::token::Lt::default()))));
+            return Some(LispOutput::Expr(eval_binary_op(
+                &tokens[1..],
+                syn::BinOp::Lt(syn::token::Lt::default()),
+            )));
         }
         // Simple assignment: (= var rhs...) or (= complex.lhs rhs)
         '=' if tokens.len() >= 3 => {
@@ -225,7 +336,8 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
             // This correctly handles (= num Some(i + 1)) → num = Some(i + 1);
             if let TokenTree::Ident(_) = &tokens[1] {
                 let is_complex_lhs = tokens.len() > 2
-                    && (is_punct(&tokens[2], '.') || is_punct(&tokens[2], ':')
+                    && (is_punct(&tokens[2], '.')
+                        || is_punct(&tokens[2], ':')
                         || matches!(&tokens[2], TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket));
                 if !is_complex_lhs {
                     let lhs = eval_lisp_arg(&tokens[1..2]);
@@ -240,9 +352,10 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                 }
             }
             // Complex LHS (e.g., self.x, v[0]): last token is RHS, everything else is LHS
-            let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
-            let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-            let lhs_expr = syn::parse2::<syn::Expr>(lhs.clone()).unwrap_or(syn::Expr::Verbatim(lhs));
+            let lhs: TokenStream2 = tokens[1..tokens.len() - 1].iter().cloned().collect();
+            let rhs = eval_lisp_arg(&tokens[tokens.len() - 1..]);
+            let lhs_expr =
+                syn::parse2::<syn::Expr>(lhs.clone()).unwrap_or(syn::Expr::Verbatim(lhs));
             let assign = syn::Expr::Assign(syn::ExprAssign {
                 attrs: vec![],
                 left: Box::new(lhs_expr),
@@ -270,11 +383,17 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                         // Tuple field access: obj.0, obj.1, etc.
                         if let Ok(idx) = lit.to_string().parse::<u32>() {
                             syn::Expr::Field(syn::ExprField {
-                                attrs: vec![], base: Box::new(acc),
+                                attrs: vec![],
+                                base: Box::new(acc),
                                 dot_token: syn::token::Dot::default(),
-                                member: syn::Member::Unnamed(syn::Index { index: idx, span: lit.span() }),
+                                member: syn::Member::Unnamed(syn::Index {
+                                    index: idx,
+                                    span: lit.span(),
+                                }),
                             })
-                        } else { acc }
+                        } else {
+                            acc
+                        }
                     }
                     _ => acc,
                 }
@@ -319,7 +438,10 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
             if p.as_char() == '\'' {
                 if let TokenTree::Ident(label_ident) = &tokens[1] {
                     let syn_label = syn::Label {
-                        name: syn::Lifetime { apostrophe: p.span(), ident: label_ident.clone() },
+                        name: syn::Lifetime {
+                            apostrophe: p.span(),
+                            ident: label_ident.clone(),
+                        },
                         colon_token: syn::token::Colon::default(),
                     };
                     if tokens.len() > 2 {
@@ -328,7 +450,8 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                 "loop" => {
                                     let body_items = parse_body_items(tokens, 3);
                                     return LispOutput::Expr(syn::Expr::Loop(syn::ExprLoop {
-                                        attrs: vec![], label: Some(syn_label),
+                                        attrs: vec![],
+                                        label: Some(syn_label),
                                         loop_token: syn::token::Loop::default(),
                                         body: syn::Block {
                                             brace_token: syn::token::Brace::default(),
@@ -345,7 +468,9 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                     // Fallback (while-let returns Verbatim)
                                     let tick = &tokens[0];
                                     let label = &tokens[1];
-                                    return LispOutput::Tokens(quote! { #tick #label : #inner_result });
+                                    return LispOutput::Tokens(
+                                        quote! { #tick #label : #inner_result },
+                                    );
                                 }
                                 "for" => {
                                     let inner_result = eval_for(&tokens[3..]);
@@ -355,7 +480,9 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                     }
                                     let tick = &tokens[0];
                                     let label = &tokens[1];
-                                    return LispOutput::Tokens(quote! { #tick #label : #inner_result });
+                                    return LispOutput::Tokens(
+                                        quote! { #tick #label : #inner_result },
+                                    );
                                 }
                                 _ => {}
                             }
@@ -384,8 +511,7 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
         // Keywords that produce output even with zero arguments fall through
         if let TokenTree::Ident(id) = t {
             match id.to_string().as_str() {
-                "vec" | "tuple" | "array" | "block" | "loop"
-                | "break" | "continue" | "return"
+                "vec" | "tuple" | "array" | "block" | "loop" | "break" | "continue" | "return"
                 | "true" | "false" => { /* fall through to keyword handling below */ }
                 // Single non-keyword ident → zero-arg function call (S-expression semantic:
                 // (f) means "call f", matching old lisp! macro_rules! catch-all behavior)
@@ -419,7 +545,10 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                 if g.delimiter() == Delimiter::Parenthesis {
                                     let inner: Vec<TokenTree> = g.stream().into_iter().collect();
                                     // Check for (.. base) spread syntax
-                                    if inner.len() >= 2 && is_punct(&inner[0], '.') && is_punct(&inner[1], '.') {
+                                    if inner.len() >= 2
+                                        && is_punct(&inner[0], '.')
+                                        && is_punct(&inner[1], '.')
+                                    {
                                         let base = eval_lisp_arg(&inner[2..]);
                                         spread = Some(quote! { ..#base });
                                         continue;
@@ -437,10 +566,15 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
 
                         if has_bare_args && fields.is_empty() {
                             // Check if all bare args are identifiers → shorthand field init
-                            let all_idents = tokens[field_start..].iter().all(|t| matches!(t, TokenTree::Ident(_)));
+                            let all_idents = tokens[field_start..]
+                                .iter()
+                                .all(|t| matches!(t, TokenTree::Ident(_)));
                             if all_idents {
-                                let field_names: Vec<&TokenTree> = tokens[field_start..].iter().collect();
-                                return LispOutput::Tokens(quote! { #struct_name_ts { #(#field_names),* } });
+                                let field_names: Vec<&TokenTree> =
+                                    tokens[field_start..].iter().collect();
+                                return LispOutput::Tokens(
+                                    quote! { #struct_name_ts { #(#field_names),* } },
+                                );
                             }
                             // Otherwise → tuple struct construction
                             let args: Vec<syn::Expr> = tokens[field_start..]
@@ -451,16 +585,16 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                         }
 
                         if let Some(spread_ts) = spread {
-                            return LispOutput::Tokens(quote! { #struct_name_ts { #(#fields,)* #spread_ts } });
+                            return LispOutput::Tokens(
+                                quote! { #struct_name_ts { #(#fields,)* #spread_ts } },
+                            );
                         }
                         return LispOutput::Tokens(quote! { #struct_name_ts { #(#fields),* } });
                     }
                 }
                 "r#struct" | "struct" => {
                     // (struct - lit Name (field val) ...)
-                    if tokens.len() >= 4
-                        && is_punct(&tokens[1], '-')
-                    {
+                    if tokens.len() >= 4 && is_punct(&tokens[1], '-') {
                         if let TokenTree::Ident(lit_id) = &tokens[2] {
                             if *lit_id == "lit" {
                                 let struct_name = &tokens[3];
@@ -468,7 +602,8 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                 for tt in &tokens[4..] {
                                     if let TokenTree::Group(g) = tt {
                                         if g.delimiter() == Delimiter::Parenthesis {
-                                            let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                                            let inner: Vec<TokenTree> =
+                                                g.stream().into_iter().collect();
                                             if inner.len() >= 2 {
                                                 let fname = &inner[0];
                                                 let fval = eval_lisp_arg(&inner[1..]);
@@ -477,7 +612,9 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                         }
                                     }
                                 }
-                                return LispOutput::Tokens(quote! { #struct_name { #(#fields),* } });
+                                return LispOutput::Tokens(
+                                    quote! { #struct_name { #(#fields),* } },
+                                );
                             }
                         }
                     }
@@ -606,7 +743,8 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                             expr: Box::new(e),
                             as_token: syn::token::As::default(),
                             ty: Box::new(syn::parse2::<syn::Type>(ty).unwrap_or_else(|_| {
-                                let fallback_ty: TokenStream2 = tokens[2..].iter().cloned().collect();
+                                let fallback_ty: TokenStream2 =
+                                    tokens[2..].iter().cloned().collect();
                                 syn::Type::Verbatim(fallback_ty)
                             })),
                         }));
@@ -758,13 +896,19 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                 "false" => {
                     return LispOutput::Expr(syn::Expr::Lit(syn::ExprLit {
                         attrs: vec![],
-                        lit: syn::Lit::Bool(syn::LitBool { value: false, span: id.span() }),
+                        lit: syn::Lit::Bool(syn::LitBool {
+                            value: false,
+                            span: id.span(),
+                        }),
                     }));
                 }
                 "true" => {
                     return LispOutput::Expr(syn::Expr::Lit(syn::ExprLit {
                         attrs: vec![],
-                        lit: syn::Lit::Bool(syn::LitBool { value: true, span: id.span() }),
+                        lit: syn::Lit::Bool(syn::LitBool {
+                            value: true,
+                            span: id.span(),
+                        }),
                     }));
                 }
                 "fn" => {
@@ -876,7 +1020,10 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                     leading_colon: None,
                     segments: {
                         let mut s = syn::punctuated::Punctuated::new();
-                        s.push(syn::PathSegment { ident: macro_id.clone(), arguments: syn::PathArguments::None });
+                        s.push(syn::PathSegment {
+                            ident: macro_id.clone(),
+                            arguments: syn::PathArguments::None,
+                        });
                         s
                     },
                 };
@@ -920,7 +1067,11 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                                 .iter()
                                 .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
                                 .collect();
-                            return LispOutput::Expr(make_method_call(*field_expr.base, method_ident, args));
+                            return LispOutput::Expr(make_method_call(
+                                *field_expr.base,
+                                method_ident,
+                                args,
+                            ));
                         }
                     }
                     // Fallback for complex cases
@@ -996,12 +1147,16 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
     // Default: treat first ident as function call
     if let TokenTree::Ident(id) = &tokens[0] {
         let func = syn::Expr::Path(syn::ExprPath {
-            attrs: vec![], qself: None,
+            attrs: vec![],
+            qself: None,
             path: syn::Path {
                 leading_colon: None,
                 segments: {
                     let mut s = syn::punctuated::Punctuated::new();
-                    s.push(syn::PathSegment { ident: id.clone(), arguments: syn::PathArguments::None });
+                    s.push(syn::PathSegment {
+                        ident: id.clone(),
+                        arguments: syn::PathArguments::None,
+                    });
                     s
                 },
             },

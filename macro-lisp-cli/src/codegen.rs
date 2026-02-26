@@ -72,9 +72,7 @@ mod tests {
 
     #[test]
     fn test_generate_basic() {
-        let exprs = vec![
-            make_expr("(fn main () () (println! \"hello\"))", 1),
-        ];
+        let exprs = vec![make_expr("(fn main () () (println! \"hello\"))", 1)];
         let source = generate_rust_source(&exprs);
         assert!(source.contains("use macro_lisp::lisp;"));
         assert!(source.contains("lisp!(fn main () () (println! \"hello\"));"));
