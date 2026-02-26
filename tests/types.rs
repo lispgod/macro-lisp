@@ -495,7 +495,7 @@ fn core_ops_drop() {
     }
     lisp!(impl<'a> core::ops::Drop for Guard<'a>
         (fn drop ((&mut self))
-            (. (. self dropped) (set true))));
+            (. self dropped (set true))));
     let flag = Cell::new(false);
     {
         let _g = Guard { dropped: &flag };

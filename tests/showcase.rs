@@ -150,7 +150,7 @@ lisp!(impl core::ops::Neg for Point
 lisp!(struct DropCounter ((count &'static std::cell::Cell<u32>)));
 lisp!(impl core::ops::Drop for DropCounter
 (fn drop ((&mut self))
-    (self.count.set (+ (self.count.get) 1))));
+    (. self count (set (+ (. self count (get)) 1)))));
 
 // Trait impl: core::convert::From
 lisp!(impl core::convert::From<(i32, i32)> for Point
@@ -172,7 +172,7 @@ lisp!(impl core::iter::Iterator for Counter
 // Generic impl
 lisp!(impl<T: core::fmt::Debug + Clone> Container<T>
     (fn unwrap ((&self)) T
-        (self.val.clone)));
+        (. self val (clone))));
 
 // =============================================================================
 // 5. Named Functions
