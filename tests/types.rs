@@ -495,7 +495,7 @@ fn core_ops_drop() {
     }
     lisp!(impl<'a> core::ops::Drop for Guard<'a>
         (fn drop ((&mut self))
-            (rust self.dropped.set(true))));
+            (. (. self dropped) (set true))));
     let flag = Cell::new(false);
     {
         let _g = Guard { dropped: &flag };
@@ -510,7 +510,8 @@ fn core_cmp_partial_eq() {
     }
     lisp!(impl core::cmp::PartialEq for Approx
         (fn eq ((self &Self) (other &Self)) bool
-            (rust { (self.val - other.val).abs() < 0.01 })));
+            (let diff (- (. self val) (. other val)))
+            (< (. diff (abs)) 0.01)));
     let a = Approx { val: 1.0 };
     let b = Approx { val: 1.005 };
     let c = Approx { val: 2.0 };
