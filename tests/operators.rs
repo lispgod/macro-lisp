@@ -184,3 +184,15 @@ fn deeply_nested() {
     let x = lisp!(+ (+ 1 2) (+ 3 4));
     assert_eq!(x, 10);
 }
+
+#[test]
+fn variadic_bitwise() {
+    let result: u8 = lisp!(& 0xFF 0x0F 0x03);
+    assert_eq!(result, 0x03);
+
+    let result2: u8 = lisp!(| 0x01 0x02 0x04);
+    assert_eq!(result2, 0x07);
+
+    let result3: u8 = lisp!(^ 0xFF 0x0F 0x01);
+    assert_eq!(result3, 0xF1);
+}

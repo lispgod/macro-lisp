@@ -448,7 +448,8 @@ fn eval_punct_expr(tokens: &[TokenTree]) -> Option<TokenStream2> {
     match ch {
         // Variadic arithmetic: (+ a b ...), (- a b ...), (* a b ...), (/ a b ...), (% a b)
         '+' | '-' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
-        '*' | '/' | '%' if tokens.len() == 3 => {
+        '*' | '/' | '&' | '|' | '^' if tokens.len() >= 3 => return Some(eval_variadic_op(&tokens[1..], ch)),
+        '%' if tokens.len() == 3 => {
             let a = eval_lisp_arg(&tokens[1..2]);
             let b = eval_lisp_arg(&tokens[2..3]);
             let op = Punct::new(ch, Spacing::Alone);

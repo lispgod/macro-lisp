@@ -451,8 +451,11 @@ macro_rules! lisp {
     (neg $e:tt) => (- $crate::lisp_arg!($e));
 
     // ── Bitwise ──────────────────────────────────────────────
+    (& $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(& {$crate::lisp_arg!($a) & $crate::lisp_arg!($b)} $($rest)+));
     (& $a:tt $b:tt) => ($crate::lisp_arg!($a) & $crate::lisp_arg!($b));
+    (| $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(| {$crate::lisp_arg!($a) | $crate::lisp_arg!($b)} $($rest)+));
     (| $a:tt $b:tt) => ($crate::lisp_arg!($a) | $crate::lisp_arg!($b));
+    (^ $a:tt $b:tt $($rest:tt)+) => ($crate::lisp!(^ {$crate::lisp_arg!($a) ^ $crate::lisp_arg!($b)} $($rest)+));
     (^ $a:tt $b:tt) => ($crate::lisp_arg!($a) ^ $crate::lisp_arg!($b));
     (<< $a:tt $b:tt) => ($crate::lisp_arg!($a) << $crate::lisp_arg!($b));
     (>> $a:tt $b:tt) => ($crate::lisp_arg!($a) >> $crate::lisp_arg!($b));
