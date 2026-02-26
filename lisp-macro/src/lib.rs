@@ -2060,15 +2060,15 @@ fn parse_fn_signature(tokens: &[TokenTree]) -> syn::Result<Option<(FnSignature, 
 /// Input: the contents of a (...) group, e.g. `fn foo ((self &Self) (x i32)) RetType (body)`
 /// Also handles: `type Name = Type`
 /// Returns the Rust code as TokenStream2.
-fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<LispOutput> {
     if tokens.is_empty() {
-        return Ok(quote! {});
+        return Ok(LispOutput::Tokens(quote! {}));
     }
 
     // Check for `type Name = Type`
     if is_ident(&tokens[0], "type") {
         let rest: TokenStream2 = tokens[1..].iter().cloned().collect();
-        return Ok(quote! { type #rest; });
+        return Ok(LispOutput::Tokens(quote! { type #rest; }));
     }
 
     // Use shared fn signature parser
@@ -2076,7 +2076,7 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         Some((sig, _)) => sig,
         None => {
             // Not a fn definition — evaluate directly
-            return Ok(eval_lisp_expr(tokens).to_token_stream());
+            return Ok(eval_lisp_expr(tokens));
         }
     };
 
@@ -2093,17 +2093,17 @@ fn parse_impl_body_item(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     let params = &sig.params;
 
     if has_body {
-        Ok(quote! {
+        Ok(LispOutput::Tokens(quote! {
             #attrs_ts
             #quals_ts fn #fn_name #gen (#(#params),*) #ret #where_cl {
                 #(#body_items);*
             }
-        })
+        }))
     } else {
-        Ok(quote! {
+        Ok(LispOutput::Tokens(quote! {
             #attrs_ts
             #quals_ts fn #fn_name #gen (#(#params),*) #ret #where_cl;
-        })
+        }))
     }
 }
 
@@ -2255,12 +2255,16 @@ pub fn lisp_impl(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_impl(&tokens);
     match result {
-        Ok(ts) => { debug_expansion("lisp_impl!", &ts); ts.into() }
+        Ok(item) => {
+            let ts = item.to_token_stream();
+            debug_expansion("lisp_impl!", &ts);
+            ts.into()
+        }
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+fn parse_impl(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let mut i = 0;
 
     // 1. Check for <...> generic params
@@ -2314,11 +2318,11 @@ fn parse_impl(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
         None => quote! {},
     };
 
-    Ok(quote! {
+    Ok(syn::Item::Verbatim(quote! {
         impl #gen #trait_for #impl_type #where_cl {
             #(#body_items)*
         }
-    })
+    }))
 }
 
 // ─── lisp_trait! ────────────────────────────────────────────────────────────
@@ -2328,12 +2332,16 @@ pub fn lisp_trait(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_trait(&tokens);
     match result {
-        Ok(ts) => { debug_expansion("lisp_trait!", &ts); ts.into() }
+        Ok(item) => {
+            let ts = item.to_token_stream();
+            debug_expansion("lisp_trait!", &ts);
+            ts.into()
+        }
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+fn parse_trait(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let mut i = 0;
 
     // 1. Check for visibility (pub, pub(crate), etc.)
@@ -2404,11 +2412,11 @@ fn parse_trait(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     };
     let where_cl = emit_where_clause(&where_clause);
 
-    Ok(quote! {
+    Ok(syn::Item::Verbatim(quote! {
         #vis_ts trait #trait_name #gen #super_cl #where_cl {
             #(#body_items)*
         }
-    })
+    }))
 }
 
 // ─── lisp_enum! ─────────────────────────────────────────────────────────────
@@ -2418,12 +2426,16 @@ pub fn lisp_enum(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_enum(&tokens);
     match result {
-        Ok(ts) => { debug_expansion("lisp_enum!", &ts); ts.into() }
+        Ok(item) => {
+            let ts = item.to_token_stream();
+            debug_expansion("lisp_enum!", &ts);
+            ts.into()
+        }
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn parse_enum(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+fn parse_enum(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let mut i = 0;
 
     // 1. Check for attributes and pub
@@ -2468,12 +2480,12 @@ fn parse_enum(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 
     let gen = emit_generics(&generics);
 
-    Ok(quote! {
+    Ok(syn::Item::Verbatim(quote! {
         #attrs_ts
         #vis_ts enum #enum_name #gen {
             #(#variants),*
         }
-    })
+    }))
 }
 
 fn parse_enum_variant(stream: TokenStream2) -> syn::Result<TokenStream2> {
@@ -2554,12 +2566,16 @@ pub fn lisp_struct(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_struct(&tokens);
     match result {
-        Ok(ts) => { debug_expansion("lisp_struct!", &ts); ts.into() }
+        Ok(item) => {
+            let ts = item.to_token_stream();
+            debug_expansion("lisp_struct!", &ts);
+            ts.into()
+        }
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+fn parse_struct(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     let mut i = 0;
 
     // 1. Collect attributes
@@ -2612,13 +2628,13 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
 
     if field_groups.is_empty() {
         // Unit struct
-        return Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; });
+        return Ok(syn::Item::Verbatim(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; }));
     }
 
     // Determine if named fields or tuple struct by inspecting first group contents
     let first_inner: Vec<TokenTree> = field_groups[0].stream().into_iter().collect();
     if first_inner.is_empty() {
-        return Ok(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; });
+        return Ok(syn::Item::Verbatim(quote! { #attrs_ts #vis_ts struct #struct_name #gen #where_cl; }));
     }
 
     // Check if this is a named-field struct: first meaningful element is a Group (field definition)
@@ -2656,21 +2672,21 @@ fn parse_struct(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
                 }
             }
         }
-        Ok(quote! {
+        Ok(syn::Item::Verbatim(quote! {
             #attrs_ts
             #vis_ts struct #struct_name #gen #where_cl {
                 #(#all_fields),*
             }
-        })
+        }))
     } else {
         // Tuple struct — first group contains space-separated types
         let types_stream: TokenStream2 = first_inner.into_iter().collect();
         let types = parse_type_list(types_stream)
             .map_err(|e| syn::Error::new(e.span(), format!("lisp_struct! tuple fields: {}", e)))?;
-        Ok(quote! {
+        Ok(syn::Item::Verbatim(quote! {
             #attrs_ts
             #vis_ts struct #struct_name #gen #where_cl ( #(#types),* );
-        })
+        }))
     }
 }
 
@@ -2681,12 +2697,16 @@ pub fn lisp_fn(input: TokenStream) -> TokenStream {
     let tokens: Vec<TokenTree> = flatten_none_delim(TokenStream2::from(input).into_iter().collect());
     let result = parse_fn(&tokens);
     match result {
-        Ok(ts) => { debug_expansion("lisp_fn!", &ts); ts.into() }
+        Ok(item) => {
+            let ts = item.to_token_stream();
+            debug_expansion("lisp_fn!", &ts);
+            ts.into()
+        }
         Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
+fn parse_fn(tokens: &[TokenTree]) -> syn::Result<syn::Item> {
     // Use shared fn signature parser
     let sig = match parse_fn_signature(tokens)? {
         Some((sig, _)) => sig,
@@ -2708,12 +2728,12 @@ fn parse_fn(tokens: &[TokenTree]) -> syn::Result<TokenStream2> {
     let fn_name = &sig.name;
     let params = &sig.params;
 
-    Ok(quote! {
+    Ok(syn::Item::Verbatim(quote! {
         #attrs_ts
         #quals_ts fn #fn_name #gen (#(#params),*) #ret #where_cl {
             #(#body_items);*
         }
-    })
+    }))
 }
 
 // ─── lisp_let! ──────────────────────────────────────────────────────────────
