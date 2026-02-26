@@ -6,6 +6,52 @@ use crate::output::{LispOutput, verbatim_expr, paren_wrap, build_block_stmts};
 use crate::shared::{parse_body_items};
 use crate::forms::{eval_if, eval_cond, eval_match, eval_for, eval_while, eval_let, eval_closure, eval_item_form};
 
+// ─── syn AST construction helpers ────────────────────────────────────────────
+
+/// Build a function call expression: `func(arg1, arg2, ...)`
+fn make_call(func: syn::Expr, args: Vec<syn::Expr>) -> syn::Expr {
+    let mut punct_args = syn::punctuated::Punctuated::new();
+    for arg in args { punct_args.push(arg); }
+    syn::Expr::Call(syn::ExprCall {
+        attrs: vec![], func: Box::new(func),
+        paren_token: syn::token::Paren::default(), args: punct_args,
+    })
+}
+
+/// Build a method call expression: `receiver.method(arg1, arg2, ...)`
+fn make_method_call(receiver: syn::Expr, method: proc_macro2::Ident, args: Vec<syn::Expr>) -> syn::Expr {
+    let mut punct_args = syn::punctuated::Punctuated::new();
+    for arg in args { punct_args.push(arg); }
+    syn::Expr::MethodCall(syn::ExprMethodCall {
+        attrs: vec![], receiver: Box::new(receiver),
+        dot_token: syn::token::Dot::default(), method, turbofish: None,
+        paren_token: syn::token::Paren::default(), args: punct_args,
+    })
+}
+
+/// Build a field access chain: `obj.field1.field2...`
+fn make_field_access(base: syn::Expr, field: &proc_macro2::Ident) -> syn::Expr {
+    syn::Expr::Field(syn::ExprField {
+        attrs: vec![], base: Box::new(base),
+        dot_token: syn::token::Dot::default(),
+        member: syn::Member::Named(field.clone()),
+    })
+}
+
+/// Build a macro invocation expression: `name!(arg1, arg2, ...)`
+fn make_macro_call(path: syn::Path, args: Vec<syn::Expr>) -> syn::Expr {
+    let args_ts: TokenStream2 = quote! { #(#args),* };
+    syn::Expr::Macro(syn::ExprMacro {
+        attrs: vec![],
+        mac: syn::Macro {
+            path,
+            bang_token: syn::token::Not::default(),
+            delimiter: syn::MacroDelimiter::Paren(syn::token::Paren::default()),
+            tokens: args_ts,
+        },
+    })
+}
+
 // ─── Operator dispatch helpers for eval_lisp_expr ────────────────────────────
 // These eliminate the repetitive per-operator match arms in the Punct branch.
 
@@ -182,15 +228,28 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
                     && (is_punct(&tokens[2], '.') || is_punct(&tokens[2], ':')
                         || matches!(&tokens[2], TokenTree::Group(g) if g.delimiter() == Delimiter::Bracket));
                 if !is_complex_lhs {
-                    let lhs = &tokens[1];
+                    let lhs = eval_lisp_arg(&tokens[1..2]);
                     let rhs = eval_lisp_arg(&tokens[2..]);
-                    return Some(LispOutput::Tokens(quote! { #lhs = #rhs; }));
+                    let assign = syn::Expr::Assign(syn::ExprAssign {
+                        attrs: vec![],
+                        left: Box::new(lhs),
+                        eq_token: syn::token::Eq::default(),
+                        right: Box::new(rhs),
+                    });
+                    return Some(LispOutput::Tokens(quote! { #assign; }));
                 }
             }
             // Complex LHS (e.g., self.x, v[0]): last token is RHS, everything else is LHS
             let lhs: TokenStream2 = tokens[1..tokens.len()-1].iter().cloned().collect();
             let rhs = eval_lisp_arg(&tokens[tokens.len()-1..]);
-            return Some(LispOutput::Tokens(quote! { #lhs = #rhs; }));
+            let lhs_expr = syn::parse2::<syn::Expr>(lhs.clone()).unwrap_or(syn::Expr::Verbatim(lhs));
+            let assign = syn::Expr::Assign(syn::ExprAssign {
+                attrs: vec![],
+                left: Box::new(lhs_expr),
+                eq_token: syn::token::Eq::default(),
+                right: Box::new(rhs),
+            });
+            return Some(LispOutput::Tokens(quote! { #assign; }));
         }
         // Unary not: (! x)
         '!' if tokens.len() == 2 => {
@@ -204,11 +263,23 @@ pub(crate) fn eval_punct_expr(tokens: &[TokenTree]) -> Option<LispOutput> {
         // Field access: (. obj field1 field2 ...)
         '.' if tokens.len() >= 3 => {
             let obj = eval_lisp_arg(&tokens[1..2]);
-            let fields_ts: TokenStream2 = tokens[2..].iter().map(|f| {
-                let f = f.clone();
-                quote! { .#f }
-            }).collect();
-            return Some(LispOutput::Tokens(quote! { #obj #fields_ts }));
+            let result = tokens[2..].iter().fold(obj, |acc, f| {
+                match f {
+                    TokenTree::Ident(ident) => make_field_access(acc, ident),
+                    TokenTree::Literal(lit) => {
+                        // Tuple field access: obj.0, obj.1, etc.
+                        if let Ok(idx) = lit.to_string().parse::<u32>() {
+                            syn::Expr::Field(syn::ExprField {
+                                attrs: vec![], base: Box::new(acc),
+                                dot_token: syn::token::Dot::default(),
+                                member: syn::Member::Unnamed(syn::Index { index: idx, span: lit.span() }),
+                            })
+                        } else { acc }
+                    }
+                    _ => acc,
+                }
+            });
+            return Some(LispOutput::Expr(result));
         }
         // Try operator: (? x)
         '?' if tokens.len() == 2 => {
@@ -246,22 +317,44 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
     if tokens.len() >= 3 {
         if let TokenTree::Punct(p) = &tokens[0] {
             if p.as_char() == '\'' {
-                if let TokenTree::Ident(_) = &tokens[1] {
-                    let tick = &tokens[0];
-                    let label = &tokens[1];
+                if let TokenTree::Ident(label_ident) = &tokens[1] {
+                    let syn_label = syn::Label {
+                        name: syn::Lifetime { apostrophe: p.span(), ident: label_ident.clone() },
+                        colon_token: syn::token::Colon::default(),
+                    };
                     if tokens.len() > 2 {
                         if let TokenTree::Ident(kw) = &tokens[2] {
                             match kw.to_string().as_str() {
                                 "loop" => {
                                     let body_items = parse_body_items(tokens, 3);
-                                    return LispOutput::Tokens(quote! { #tick #label : loop { #(#body_items);* } });
+                                    return LispOutput::Expr(syn::Expr::Loop(syn::ExprLoop {
+                                        attrs: vec![], label: Some(syn_label),
+                                        loop_token: syn::token::Loop::default(),
+                                        body: syn::Block {
+                                            brace_token: syn::token::Brace::default(),
+                                            stmts: build_block_stmts(body_items),
+                                        },
+                                    }));
                                 }
                                 "while" => {
                                     let inner_result = eval_while(&tokens[3..]);
+                                    if let syn::Expr::While(mut w) = inner_result {
+                                        w.label = Some(syn_label);
+                                        return LispOutput::Expr(syn::Expr::While(w));
+                                    }
+                                    // Fallback (while-let returns Verbatim)
+                                    let tick = &tokens[0];
+                                    let label = &tokens[1];
                                     return LispOutput::Tokens(quote! { #tick #label : #inner_result });
                                 }
                                 "for" => {
                                     let inner_result = eval_for(&tokens[3..]);
+                                    if let syn::Expr::ForLoop(mut f) = inner_result {
+                                        f.label = Some(syn_label);
+                                        return LispOutput::Expr(syn::Expr::ForLoop(f));
+                                    }
+                                    let tick = &tokens[0];
+                                    let label = &tokens[1];
                                     return LispOutput::Tokens(quote! { #tick #label : #inner_result });
                                 }
                                 _ => {}
@@ -777,15 +870,21 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
 
     // Check for ident! pattern (macro invocation shorthand: (name! args...) → name!(args...))
     if tokens.len() >= 2 {
-        if let TokenTree::Ident(_) = &tokens[0] {
+        if let TokenTree::Ident(macro_id) = &tokens[0] {
             if is_punct(&tokens[1], '!') {
-                // Collect the macro name (may be path::name)
-                let macro_name = &tokens[0];
+                let path = syn::Path {
+                    leading_colon: None,
+                    segments: {
+                        let mut s = syn::punctuated::Punctuated::new();
+                        s.push(syn::PathSegment { ident: macro_id.clone(), arguments: syn::PathArguments::None });
+                        s
+                    },
+                };
                 let args: Vec<syn::Expr> = tokens[2..]
                     .iter()
                     .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
                     .collect();
-                return LispOutput::Tokens(quote! { #macro_name ! (#(#args),*) });
+                return LispOutput::Expr(make_macro_call(path, args));
             }
         }
     }
@@ -795,20 +894,37 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
         if let TokenTree::Ident(first) = &tokens[0] {
             if is_punct(&tokens[1], '.') {
                 // Could be field access chain or method call
-                // Find extent of the path: ident.ident.ident...
-                let mut path_end = 1;
-                while path_end + 1 < tokens.len() {
-                    if is_punct(&tokens[path_end], '.') {
-                        if let TokenTree::Ident(_) = &tokens[path_end + 1] {
-                            path_end += 2;
+                // Build chain of ident.ident.ident... as field accesses, then check for args
+                let first_expr = eval_lisp_arg(std::slice::from_ref(&tokens[0]));
+                let mut chain_expr = first_expr;
+                let mut path_end = 2;
+                // Build field/method chain
+                while path_end < tokens.len() {
+                    if let TokenTree::Ident(field_id) = &tokens[path_end] {
+                        chain_expr = make_field_access(chain_expr, field_id);
+                        path_end += 1;
+                        // Check for next dot
+                        if path_end < tokens.len() && is_punct(&tokens[path_end], '.') {
+                            path_end += 1;
                             continue;
                         }
                     }
                     break;
                 }
-                let path_ts: TokenStream2 = tokens[..path_end].iter().cloned().collect();
                 if path_end < tokens.len() {
-                    // Has args - method call
+                    // Has remaining args → method call on the last field
+                    // We need to "undo" the last field access and turn it into a method call
+                    if let syn::Expr::Field(field_expr) = chain_expr {
+                        if let syn::Member::Named(method_ident) = field_expr.member {
+                            let args: Vec<syn::Expr> = tokens[path_end..]
+                                .iter()
+                                .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                                .collect();
+                            return LispOutput::Expr(make_method_call(*field_expr.base, method_ident, args));
+                        }
+                    }
+                    // Fallback for complex cases
+                    let path_ts: TokenStream2 = tokens[..path_end].iter().cloned().collect();
                     let args: Vec<syn::Expr> = tokens[path_end..]
                         .iter()
                         .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
@@ -818,19 +934,20 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                     // No args
                     // `self.x.y` is field access
                     if *first == "self" {
-                        return LispOutput::Tokens(quote! { #path_ts });
+                        return LispOutput::Expr(chain_expr);
                     }
                     // Non-self: each .ident is a zero-arg method call
-                    // obj.m1.m2 → obj.m1().m2()
-                    let first_tok = &tokens[0];
-                    let mut result = quote! { #first_tok };
+                    // Rebuild as method call chain
+                    let first_expr2 = eval_lisp_arg(std::slice::from_ref(&tokens[0]));
+                    let mut result = first_expr2;
                     let mut j = 2; // skip first ident and first dot
-                    while j < path_end {
-                        let method = &tokens[j];
-                        result = quote! { #result.#method() };
+                    while j < tokens.len() {
+                        if let TokenTree::Ident(method_id) = &tokens[j] {
+                            result = make_method_call(result, method_id.clone(), vec![]);
+                        }
                         j += 2; // skip ident and next dot
                     }
-                    return LispOutput::Tokens(result);
+                    return LispOutput::Expr(result);
                 }
             }
         }
@@ -845,32 +962,55 @@ pub(crate) fn eval_lisp_expr(tokens: &[TokenTree]) -> LispOutput {
                 let path_ts: TokenStream2 = path.into_iter().collect();
                 if rest.is_empty() {
                     // In the S-expression DSL, (path::func) is a zero-arg function call
-                    return LispOutput::Tokens(quote! { #path_ts() });
+                    let func = syn::parse2::<syn::Expr>(path_ts.clone())
+                        .unwrap_or(syn::Expr::Verbatim(path_ts));
+                    return LispOutput::Expr(make_call(func, vec![]));
                 }
                 // Check for path::name! pattern (macro invocation)
                 if !rest.is_empty() && is_punct(&rest[0], '!') {
+                    if let Ok(path) = syn::parse2::<syn::Path>(path_ts.clone()) {
+                        let args: Vec<syn::Expr> = rest[1..]
+                            .iter()
+                            .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
+                            .collect();
+                        return LispOutput::Expr(make_macro_call(path, args));
+                    }
+                    // Fallback
                     let args: Vec<syn::Expr> = rest[1..]
                         .iter()
                         .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
                         .collect();
                     return LispOutput::Tokens(quote! { #path_ts ! (#(#args),*) });
                 }
+                let func = syn::parse2::<syn::Expr>(path_ts.clone())
+                    .unwrap_or(syn::Expr::Verbatim(path_ts));
                 let args: Vec<syn::Expr> = rest
                     .iter()
                     .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
                     .collect();
-                return LispOutput::Tokens(quote! { #path_ts(#(#args),*) });
+                return LispOutput::Expr(make_call(func, args));
             }
         }
     }
 
     // Default: treat first ident as function call
     if let TokenTree::Ident(id) = &tokens[0] {
+        let func = syn::Expr::Path(syn::ExprPath {
+            attrs: vec![], qself: None,
+            path: syn::Path {
+                leading_colon: None,
+                segments: {
+                    let mut s = syn::punctuated::Punctuated::new();
+                    s.push(syn::PathSegment { ident: id.clone(), arguments: syn::PathArguments::None });
+                    s
+                },
+            },
+        });
         let args: Vec<syn::Expr> = tokens[1..]
             .iter()
             .map(|t| eval_lisp_arg(std::slice::from_ref(t)))
             .collect();
-        return LispOutput::Tokens(quote! { #id(#(#args),*) });
+        return LispOutput::Expr(make_call(func, args));
     }
 
     // Fallback: emit tokens as-is
