@@ -1,13 +1,10 @@
-error: expected expression, found `let` statement
- --> tests/errors/let_missing_value.rs:4:12
+error[E0282]: type annotations needed
+ --> tests/errors/let_missing_value.rs:4:16
   |
 4 |     lisp!((let x));
-  |            ^^^
+  |                ^
   |
-  = note: only supported directly in conditions of `if` and `while` expressions
-
-error: expected one of `=`, `@`, or `|`, found `)`
- --> tests/errors/let_missing_value.rs:4:17
+help: consider giving `x` an explicit type
   |
-4 |     lisp!((let x));
-  |                 ^ expected one of `=`, `@`, or `|`
+4 |     lisp!((let x: /* Type */));
+  |                 ++++++++++++
