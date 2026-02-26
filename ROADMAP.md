@@ -111,7 +111,7 @@ Build a standalone binary that reads `.lisp` source files, wraps them in `lisp!(
 - **Tasks:**
   - Implement Option A first:
     1. Write the generated `.rs` to a temp directory.
-    2. Invoke `rustc --edition 2021 --error-format=json -L <path-to-macro-lisp> <generated>.rs`.
+    2. Invoke `rustc --edition <edition> --error-format=json -L <path-to-macro-lisp> <generated>.rs` (detect the edition from the project's `Cargo.toml`, defaulting to `2021`).
     3. Capture stdout (compiled binary path) and stderr (diagnostics JSON).
     4. Parse `rustc` JSON diagnostics into structured error objects.
   - If compilation succeeds, run the resulting binary and capture its stdout/stderr.
