@@ -710,7 +710,7 @@ fn ranges() {
     for i in lisp!(..= 0 5) { sum2 += i; }
     assert_eq!(sum2, 15);
 
-    // Half-open range for slicing
+    // Open-ended range from index 2 for slicing
     let v = vec![10, 20, 30, 40, 50];
     let slice = &v[lisp!(.. 2)];
     assert_eq!(slice, &[30, 40, 50]);
@@ -912,12 +912,9 @@ fn trait_drop() {
     DROP_COUNT.with(|c| c.set(0));
     {
         let _guard = DropCounter { count: DROP_COUNT.with(|c| {
-            // Need a static ref; use a leaked cell for testing
-            // Instead, use the existing pattern from core_traits test
-            unsafe {
-                let ptr = c as *const Cell<u32> as *const Cell<u32>;
-                &*ptr
-            }
+            // Safety: the Cell lives in thread-local storage for the duration of this test.
+            // We transmute the lifetime to 'static so it can be stored in DropCounter.
+            unsafe { &*(c as *const Cell<u32>) }
         })};
     }
     DROP_COUNT.with(|c| assert_eq!(c.get(), 1));
