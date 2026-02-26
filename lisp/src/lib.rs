@@ -227,21 +227,14 @@ macro_rules! lisp {
     // impl — always dispatched to proc macro for proper fn handling
     (impl $($tokens:tt)+) => ( $crate::lisp_impl!($($tokens)+); );
 
-    // type alias
-    ($vis:vis type $name:ident = $target:ty) => ($vis type $name = $target;);
-
-    // const fn — dispatch to proc macro (MUST precede const variable rules)
+    // const fn — dispatch to proc macro (MUST precede const item rules)
     ( $(#[$m:meta])* $vis:vis const fn $sym:ident $($rest:tt)+ ) => ( $crate::lisp_fn!($(#[$m])* $vis const fn $sym $($rest)+); );
 
-    // const and static (with = separator)
-    ($vis:vis const $name:ident $typ:ty = $val:expr) => ($vis const $name: $typ = $val;);
-    ($vis:vis static mut $name:ident $typ:ty = $val:expr) => ($vis static mut $name: $typ = $val;);
-    ($vis:vis static $name:ident $typ:ty = $val:expr) => ($vis static $name: $typ = $val;);
-
-    // const/static (without = separator)
-    (const $name:ident $typ:tt $val:tt) => (const $name: $typ = $crate::lisp_arg!($val););
-    (static mut $name:ident $typ:tt $val:tt) => (static mut $name: $typ = $crate::lisp_arg!($val););
-    (static $name:ident $typ:tt $val:tt) => (static $name: $typ = $crate::lisp_arg!($val););
+    // const, static, type — delegate to proc-macro with semicolon for item-level output.
+    // The proc-macro provides syn::Type validation and eval_lisp_arg for values.
+    ($vis:vis const $name:ident $($rest:tt)+) => ($crate::lisp_eval!($vis const $name $($rest)+););
+    ($vis:vis static $($rest:tt)+) => ($crate::lisp_eval!($vis static $($rest)+););
+    ($vis:vis type $name:ident = $($rest:tt)+) => ($crate::lisp_eval!($vis type $name = $($rest)+););
 
     // ── Imports & Modules ────────────────────────────────────
 
@@ -285,10 +278,4 @@ macro_rules! lisp {
     // bindings, references, collections, field access, function calls, etc.)
     // are handled by the single eval_lisp_expr engine in the proc macro.
     ($($t:tt)+) => ($crate::lisp_eval!($($t)+));
-}
-
-#[macro_export]
-macro_rules! lisp_arg {
-    ( ( $($e:tt)* ) ) => ( $crate::lisp!( $($e)* ) );
-    ($e:expr) => ($e);
 }

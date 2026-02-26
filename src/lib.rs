@@ -80,7 +80,6 @@
 //! ```
 
 pub use lisp::lisp;
-pub use lisp::lisp_arg;
 pub use lisp::lisp_eval;
 pub use lisp::lisp_assign;
 pub use lisp::lisp_impl;
