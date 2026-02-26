@@ -2,7 +2,7 @@ use proc_macro2::{Delimiter, TokenTree, TokenStream as TokenStream2, Spacing, Pu
 use quote::quote;
 
 use crate::helpers::{is_punct, is_ident, consume_type_path, validate_type};
-use crate::output::{LispOutput, verbatim_expr, paren_wrap, build_block_stmts};
+use crate::output::{LispOutput, paren_wrap, build_block_stmts};
 use crate::shared::{parse_body_items};
 use crate::forms::{eval_if, eval_cond, eval_match, eval_for, eval_while, eval_let, eval_closure, eval_item_form};
 

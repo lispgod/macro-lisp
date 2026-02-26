@@ -35,9 +35,13 @@ pub(crate) fn eval_if(tokens: &[TokenTree]) -> syn::Expr {
     }
 
     let cond = eval_lisp_arg(&tokens[0..1]);
-    let then_block = syn::Block {
-        brace_token: syn::token::Brace::default(),
-        stmts: build_block_stmts(vec![LispOutput::Expr(eval_lisp_arg(&tokens[1..2]))]),
+    let then_block = if tokens.len() >= 2 {
+        syn::Block {
+            brace_token: syn::token::Brace::default(),
+            stmts: build_block_stmts(vec![LispOutput::Expr(eval_lisp_arg(&tokens[1..2]))]),
+        }
+    } else {
+        syn::Block { brace_token: syn::token::Brace::default(), stmts: vec![] }
     };
     let else_branch = if tokens.len() >= 3 {
         let else_expr = eval_lisp_arg(&tokens[2..3]);
@@ -490,16 +494,16 @@ pub(crate) fn eval_item_form(tokens: &[TokenTree]) -> Option<LispOutput> {
         if rest.len() >= 2 && is_ident(&rest[1], "fn") {
             return None;
         }
-        return eval_const_static(rest, &vis_ts, false, false).ok().map(|r| r);
+        return eval_const_static(rest, &vis_ts, false, false).ok();
     }
 
     if is_ident(&rest[0], "static") {
         let is_mut = rest.len() >= 2 && is_ident(&rest[1], "mut");
-        return eval_const_static(rest, &vis_ts, true, is_mut).ok().map(|r| r);
+        return eval_const_static(rest, &vis_ts, true, is_mut).ok();
     }
 
     if is_ident(&rest[0], "type") {
-        return eval_type_alias(rest, &vis_ts).ok().map(|r| r);
+        return eval_type_alias(rest, &vis_ts).ok();
     }
 
     None
