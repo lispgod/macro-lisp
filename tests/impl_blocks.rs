@@ -42,3 +42,17 @@ fn impl_add_with_associated_type() {
     let b = V2 { x: 3, y: 4 };
     assert_eq!(a + b, V2 { x: 4, y: 6 });
 }
+
+#[test]
+fn impl_with_lifetime() {
+    struct StrRef<'a> {
+        s: &'a str,
+    }
+
+    lisp!(impl<'a> StrRef<'a>
+        (fn value ((&self)) &'a str
+            (self.s)));
+
+    let sr = StrRef { s: "hello" };
+    assert_eq!(sr.value(), "hello");
+}

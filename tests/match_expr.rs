@@ -29,3 +29,16 @@ fn match_multi_body() {
         (_ => 0));
     assert_eq!(result, 22);
 }
+
+#[test]
+fn match_with_guards() {
+    let classify = |x: i32| -> &'static str {
+        lisp!(match x
+            (n if (> n 0) => "positive")
+            (n if (< n 0) => "negative")
+            (_ => "zero"))
+    };
+    assert_eq!(classify(5), "positive");
+    assert_eq!(classify(-3), "negative");
+    assert_eq!(classify(0), "zero");
+}

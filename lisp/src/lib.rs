@@ -267,6 +267,10 @@ macro_rules! lisp {
             $($pattern $(| $pat2)* => { $($crate::lisp_arg!($body));* }),*
         }
     );
+    // match with mixed guard clauses (some arms may have guards, some may not)
+    (match $e:tt $($arm:tt)*) => (
+        $crate::lisp_match_dispatch!([$crate::lisp_arg!($e)] () $($arm)*)
+    );
 
     // ── Bindings ─────────────────────────────────────────────
 
@@ -592,4 +596,30 @@ macro_rules! lisp_match_arg {
     ($name:ident ! $($args:tt)*) => ($name ! ($($crate::lisp_arg!($args)),*));
     ($e:expr) => ($e);
     ( $($e:tt)* ) => ($crate::lisp!( $($e)* ));
+}
+
+/// Helper macro for match with mixed guard/non-guard arms (TT muncher).
+#[doc(hidden)]
+#[macro_export]
+macro_rules! lisp_match_dispatch {
+    // Base case: no more arms, produce the match expression
+    ([$($e:tt)*] ($($acc:tt)*)) => (
+        match $($e)* { $($acc)* }
+    );
+    // Arm with guard + single body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* if $guard:tt => $body:tt) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* if $crate::lisp_arg!($guard) => { $crate::lisp_match_arg!($body) },) $($rest)*)
+    );
+    // Arm with guard + multi body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* if $guard:tt => $($body:tt)+) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* if $crate::lisp_arg!($guard) => { $($crate::lisp_arg!($body));* },) $($rest)*)
+    );
+    // Arm without guard + single body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* => $body:tt) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* => { $crate::lisp_match_arg!($body) },) $($rest)*)
+    );
+    // Arm without guard + multi body
+    ([$($e:tt)*] ($($acc:tt)*) ($pattern:pat_param $(| $pat2:pat_param)* => $($body:tt)+) $($rest:tt)*) => (
+        $crate::lisp_match_dispatch!([$($e)*] ($($acc)* $pattern $(| $pat2)* => { $($crate::lisp_arg!($body));* },) $($rest)*)
+    );
 }

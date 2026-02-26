@@ -4,6 +4,9 @@
 
 use macro_lisp::lisp;
 
+// Test extern crate form
+lisp!(extern crate std);
+
 lisp!(mod module_test
     (fn do_nothing())
 
@@ -20,3 +23,9 @@ lisp!(mod module_test
         (assert_eq! 3 num)
     )
 );
+
+#[test]
+fn extern_crate_form() {
+    // extern crate std compiles at module level above
+    assert!(true);
+}

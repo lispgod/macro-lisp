@@ -125,3 +125,17 @@ fn closure_zero_params_return_type() {
     let f = lisp!(fn () -> i32 (+ 1 2));
     assert_eq!(f(), 3);
 }
+
+#[test]
+fn impl_trait_arg() {
+    lisp!(fn print_it ((x &impl core::fmt::Display)) String
+        (format! "{}" x));
+    assert_eq!(print_it(&42), "42");
+}
+
+#[test]
+fn dyn_trait_arg() {
+    lisp!(fn format_it ((x &dyn core::fmt::Display)) String
+        (format! "{}" x));
+    assert_eq!(format_it(&42), "42");
+}
